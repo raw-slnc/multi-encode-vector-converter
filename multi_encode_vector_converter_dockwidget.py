@@ -25,7 +25,7 @@ import os
 import csv
 
 from qgis.PyQt import QtWidgets
-from qgis.PyQt.QtCore import QCoreApplication, Qt, QVariant, pyqtSignal
+from qgis.PyQt.QtCore import QCoreApplication, Qt, QVariant, pyqtSignal, QSettings, QTranslator
 from qgis.PyQt.QtWidgets import (
     QWidget,
     QGroupBox,
@@ -58,6 +58,14 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
 
     closingPlugin = pyqtSignal()
 
+    # Language selector: (locale_code, display_name)
+    _LANGUAGES = [
+        ("en", "English"),
+        ("es", "Español"),
+        ("pt", "Português"),
+        ("ja", "日本語"),
+    ]
+
     # Display name → Python codec string (None = auto)
     _ENCODING_CODEC = {
         "Auto Detect": None,
@@ -85,13 +93,17 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
         """Constructor."""
         super(MultiEncodeVectorConverterDockWidget, self).__init__(parent)
 
+        self._plugin_dir = os.path.dirname(__file__)
+        self._translator = None
+
         self.setWindowTitle(self.tr("Multi-Encode Vector Converter"))
 
         main_widget = QWidget()
         layout = QVBoxLayout()
 
         # ── A: Input Source ──────────────────────────────────────────
-        group_a = QGroupBox(self.tr("A: Input Source"))
+        self.group_a = QGroupBox(self.tr("A: Input Source"))
+        group_a = self.group_a
         layout_a = QVBoxLayout()
 
         rb_row = QHBoxLayout()
@@ -209,7 +221,8 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
         layout.addWidget(self.lbl_layer_check)
 
         # ── B: Encoding ───────────────────────────────────────────────
-        group_b = QGroupBox(self.tr("B: Encoding"))
+        self.group_b = QGroupBox(self.tr("B: Encoding"))
+        group_b = self.group_b
         layout_b = QHBoxLayout()
 
         enc_items = list(self._ENCODING_CODEC.keys())
@@ -219,9 +232,9 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
         layout_layer_enc = QVBoxLayout()
         layout_layer_enc.setContentsMargins(0, 0, 4, 0)
         layout_layer_enc.setSpacing(4)
-        lbl_layer_enc_title = QLabel(self.tr("Layer Encoding"))
-        lbl_layer_enc_title.setAlignment(Qt.AlignCenter)
-        layout_layer_enc.addWidget(lbl_layer_enc_title)
+        self.lbl_layer_enc_title = QLabel(self.tr("Layer Encoding"))
+        self.lbl_layer_enc_title.setAlignment(Qt.AlignCenter)
+        layout_layer_enc.addWidget(self.lbl_layer_enc_title)
         self.cb_encoding = QComboBox()
         self.cb_encoding.addItems(enc_items)
         layout_layer_enc.addWidget(self.cb_encoding)
@@ -242,9 +255,9 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
         layout_csv_enc = QVBoxLayout()
         layout_csv_enc.setContentsMargins(4, 0, 0, 0)
         layout_csv_enc.setSpacing(4)
-        lbl_csv_enc_title = QLabel(self.tr("CSV Encoding"))
-        lbl_csv_enc_title.setAlignment(Qt.AlignCenter)
-        layout_csv_enc.addWidget(lbl_csv_enc_title)
+        self.lbl_csv_enc_title = QLabel(self.tr("CSV Encoding"))
+        self.lbl_csv_enc_title.setAlignment(Qt.AlignCenter)
+        layout_csv_enc.addWidget(self.lbl_csv_enc_title)
         self.cb_csv_encoding = QComboBox()
         self.cb_csv_encoding.addItems(enc_items)
         layout_csv_enc.addWidget(self.cb_csv_encoding)
@@ -264,10 +277,13 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
         layout.addWidget(group_b)
 
         # ── C: Output Format ──────────────────────────────────────────
-        group_c = QGroupBox(self.tr("C: Output Format"))
+        self.group_c = QGroupBox(self.tr("C: Output Format"))
+        group_c = self.group_c
         layout_c = QVBoxLayout()
-        layout_c.addWidget(QLabel(self.tr("GeoPackage (GPKG, Recommended)")))
-        layout_c.addWidget(QLabel(self.tr("Output path will be selected when Execute is clicked.")))
+        self.lbl_gpkg = QLabel(self.tr("GeoPackage (GPKG, Recommended)"))
+        layout_c.addWidget(self.lbl_gpkg)
+        self.lbl_output_hint = QLabel(self.tr("Output path will be selected when Execute is clicked."))
+        layout_c.addWidget(self.lbl_output_hint)
         self.btn_execute = QPushButton(self.tr("Execute"))
         self.btn_execute.clicked.connect(self._on_execute_clicked)
         layout_c.addWidget(self.btn_execute)
@@ -280,18 +296,29 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
         layout.addWidget(self.lbl_result_summary)
 
         # ── Important Note ────────────────────────────────────────────
-        group_note = QGroupBox(self.tr("Important Note"))
+        self.group_note = QGroupBox(self.tr("Important Note"))
+        group_note = self.group_note
         layout_note = QVBoxLayout()
-        lbl_note = QLabel(self.tr(
+        self.lbl_note = QLabel(self.tr(
             "This is a temporary remediation for GPKG workflows.\n"
             "GPKG handling in this plugin is a temporary relief measure.\n"
             "It improves normalization and integration issues, but cannot fully restore\n"
             "information already lost by legacy format limits or irreversible conversions."
         ))
-        lbl_note.setWordWrap(True)
-        layout_note.addWidget(lbl_note)
+        self.lbl_note.setWordWrap(True)
+        layout_note.addWidget(self.lbl_note)
         group_note.setLayout(layout_note)
         layout.addWidget(group_note)
+
+        # ── Language Switcher (bottom-left) ───────────────────────────
+        lang_row = QHBoxLayout()
+        lang_row.addWidget(QLabel("Language:"))
+        self.cb_language = QComboBox()
+        for _, display in self._LANGUAGES:
+            self.cb_language.addItem(display)
+        lang_row.addWidget(self.cb_language)
+        lang_row.addStretch()
+        layout.addLayout(lang_row)
 
         main_widget.setLayout(layout)
         self.setWidget(main_widget)
@@ -307,8 +334,73 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
         QgsProject.instance().layersAdded.connect(self._refresh_layer_list)
         QgsProject.instance().layersRemoved.connect(self._refresh_layer_list)
 
+        self.cb_language.currentIndexChanged.connect(self._on_language_changed)
+
         self._refresh_layer_list()
         self._update_input_mode()
+        self._apply_language(self._detect_initial_locale())
+
+    # ── Language management ────────────────────────────────────────────
+
+    def _detect_initial_locale(self):
+        saved = QSettings("MultiEncodeVectorConverter", "prefs").value("language", "")
+        if saved and any(code == saved for code, _ in self._LANGUAGES):
+            return saved
+        system_locale = QSettings().value("locale/userLocale", "en")[:2]
+        if any(code == system_locale for code, _ in self._LANGUAGES):
+            return system_locale
+        return "en"
+
+    def _apply_language(self, locale):
+        if self._translator:
+            QCoreApplication.removeTranslator(self._translator)
+            self._translator = None
+        if locale != "en":
+            qm_path = os.path.join(
+                self._plugin_dir, "i18n",
+                "multi_encode_vector_converter_{}.qm".format(locale)
+            )
+            if os.path.exists(qm_path):
+                self._translator = QTranslator()
+                self._translator.load(qm_path)
+                QCoreApplication.installTranslator(self._translator)
+        QSettings("MultiEncodeVectorConverter", "prefs").setValue("language", locale)
+        self.cb_language.blockSignals(True)
+        for i, (code, _) in enumerate(self._LANGUAGES):
+            if code == locale:
+                self.cb_language.setCurrentIndex(i)
+                break
+        self.cb_language.blockSignals(False)
+        self._retranslate_ui()
+
+    def _on_language_changed(self, index):
+        locale = self._LANGUAGES[index][0]
+        self._apply_language(locale)
+
+    def _retranslate_ui(self):
+        self.setWindowTitle(self.tr("Multi-Encode Vector Converter"))
+        self.group_a.setTitle(self.tr("A: Input Source"))
+        self.rb_layer.setText(self.tr("QGIS Layer"))
+        self.rb_layer_csv.setText(self.tr("QGIS Layer + CSV"))
+        self.rb_shp.setText(self.tr("Shapefile"))
+        self.btn_browse_csv.setText(self.tr("Browse"))
+        self.le_csv_path.setPlaceholderText(self.tr("Select a .csv file"))
+        self.le_shp_path.setPlaceholderText(self.tr("Select a .shp file"))
+        self.btn_browse_shp.setText(self.tr("Browse"))
+        self.group_b.setTitle(self.tr("B: Encoding"))
+        self.lbl_layer_enc_title.setText(self.tr("Layer Encoding"))
+        self.lbl_csv_enc_title.setText(self.tr("CSV Encoding"))
+        self.group_c.setTitle(self.tr("C: Output Format"))
+        self.lbl_gpkg.setText(self.tr("GeoPackage (GPKG, Recommended)"))
+        self.lbl_output_hint.setText(self.tr("Output path will be selected when Execute is clicked."))
+        self.btn_execute.setText(self.tr("Execute"))
+        self.group_note.setTitle(self.tr("Important Note"))
+        self.lbl_note.setText(self.tr(
+            "This is a temporary remediation for GPKG workflows.\n"
+            "GPKG handling in this plugin is a temporary relief measure.\n"
+            "It improves normalization and integration issues, but cannot fully restore\n"
+            "information already lost by legacy format limits or irreversible conversions."
+        ))
 
     # ── Layer list management ──────────────────────────────────────────
 
