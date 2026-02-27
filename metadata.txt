@@ -15,6 +15,7 @@ changelog=
 category=Vector
 tags=vector,encoding,geopackage,conversion,csv,join,utf-8,shift_jis,cp932,mojibake
 repository=https://github.com/raw-slnc/Multi-Encode-Vector-Converter
+tracker=https://github.com/raw-slnc/Multi-Encode-Vector-Converter/issues
 icon=icon.png
 experimental=True
 deprecated=False
