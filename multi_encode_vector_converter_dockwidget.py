@@ -1046,14 +1046,12 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
                 )
 
                 # Filter the fields to be merged based on the join subset.
-                if join_fields_subset:
-                    # The names in the subset include the join prefix. We must remove it
-                    # to match the original CSV header names.
-                    prefix = join_info.prefix()
-                    original_field_names = {f.replace(prefix, '', 1) for f in join_fields_subset}
-                    fields_to_merge = [f for f in all_csv_extra_fields if f in original_field_names]
+                # joinFieldNamesSubset() returns the original CSV column names (no prefix).
+                # None means all fields are joined.
+                if join_fields_subset is not None:
+                    subset_set = set(join_fields_subset)
+                    fields_to_merge = [f for f in all_csv_extra_fields if f in subset_set]
                 else:
-                    # If subset is empty, QGIS joins all fields.
                     fields_to_merge = all_csv_extra_fields
 
                 if csv_dict is not None:
@@ -1320,7 +1318,13 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
                 for row in reader:
                     key = str(row.get(key_field, "") or "").strip()
                     csv_dict[key] = dict(row)
-            extra_fields = [h for h in headers if h != key_field]
+            # Deduplicate while preserving order; duplicate CSV columns cause _α suffixes.
+            seen = {key_field}
+            extra_fields = []
+            for h in headers:
+                if h not in seen:
+                    seen.add(h)
+                    extra_fields.append(h)
             return csv_dict, extra_fields
         except Exception:
             return None, None
