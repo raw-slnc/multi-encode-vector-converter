@@ -22,10 +22,15 @@
  ***************************************************************************/
 """
 import os
+import sys
 import csv
 import time
 import zipfile
-import xml.etree.ElementTree as ET
+
+_vendor = os.path.join(os.path.dirname(__file__), "vendor")
+if _vendor not in sys.path:
+    sys.path.append(_vendor)  # vendor は末尾追加でシステム版を優先
+import defusedxml.ElementTree as ET  # noqa: E402
 
 from qgis.PyQt import QtWidgets
 from qgis.PyQt.QtCore import QCoreApplication, Qt, QMetaType, QTimer, pyqtSignal, QSettings, QTranslator, QThread, QObject, pyqtSlot
@@ -73,12 +78,12 @@ def _debug_log(message):
                 )
             )
             f.flush()
-    except Exception:
+    except Exception:  # nosec B110 - best-effort breadcrumb; a logging failure must never abort the caller
         pass
     try:
         from qgis.core import Qgis, QgsMessageLog
         QgsMessageLog.logMessage(message, "MultiEncodeVectorConverter", Qgis.MessageLevel.Info)
-    except Exception:
+    except Exception:  # nosec B110 - best-effort breadcrumb; a logging failure must never abort the caller
         pass
 
 
@@ -1392,7 +1397,7 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDialog):
                     if target:
                         target = target.lstrip("/")
                         return target if target.startswith("xl/") else "xl/{}".format(target)
-        except Exception:
+        except Exception:  # nosec B110 - malformed workbook.xml relationships fall back to the default sheet path below
             pass
         return "xl/worksheets/sheet1.xml" if "xl/worksheets/sheet1.xml" in zf.namelist() else None
 
@@ -2288,7 +2293,7 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDialog):
         if os.path.exists(output_path):
             try:
                 driver.DeleteDataSource(output_path)
-            except Exception:
+            except Exception:  # nosec B110 - best-effort cleanup; a real failure surfaces via the CreateDataSource check below
                 pass
         out_ds = driver.CreateDataSource(output_path)
         if out_ds is None:
