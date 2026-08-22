@@ -23,9 +23,12 @@
 """
 import os
 import csv
+import time
+import zipfile
+import xml.etree.ElementTree as ET
 
 from qgis.PyQt import QtWidgets
-from qgis.PyQt.QtCore import QCoreApplication, Qt, QVariant, pyqtSignal, QSettings, QTranslator, QThread, QObject, pyqtSlot
+from qgis.PyQt.QtCore import QCoreApplication, Qt, QMetaType, QTimer, pyqtSignal, QSettings, QTranslator, QThread, QObject, pyqtSlot
 from qgis.PyQt.QtWidgets import (
     QWidget,
     QGroupBox,
@@ -55,25 +58,67 @@ from qgis.core import (
 )
 
 
+_DEBUG_LOG_PATH = os.path.join(os.path.dirname(__file__), "debug.log")
+
+
+def _debug_log(message):
+    """Write a crash-surviving breadcrumb for field diagnostics."""
+    try:
+        with open(_DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(
+                "{:.3f} pid={} {}\n".format(
+                    time.time(),
+                    os.getpid(),
+                    message,
+                )
+            )
+            f.flush()
+    except Exception:
+        pass
+    try:
+        from qgis.core import Qgis, QgsMessageLog
+        QgsMessageLog.logMessage(message, "MultiEncodeVectorConverter", Qgis.MessageLevel.Info)
+    except Exception:
+        pass
+
+
 class _ConversionWorker(QObject):
     """Runs the conversion on a background thread and emits the result."""
+    progress = pyqtSignal(int)
     finished = pyqtSignal(bool, str)  # ok, message
 
-    def __init__(self, fn, path):
+    def __init__(self, fn, arg):
         super().__init__()
         self._fn = fn
-        self._path = path
+        self._arg = arg
 
     @pyqtSlot()
     def run(self):
         try:
-            ok, msg = self._fn(self._path)
+            ok, msg = self._fn(self._arg, self.progress.emit)
         except Exception as e:
             ok, msg = False, str(e)
         self.finished.emit(ok, msg)
 
 
-class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
+class _ScanWorker(QObject):
+    """Runs a zero-arg data-gathering callable on a background thread and emits the result."""
+    finished = pyqtSignal(object)  # result dict, or an Exception instance on failure
+
+    def __init__(self, fn):
+        super().__init__()
+        self._fn = fn
+
+    @pyqtSlot()
+    def run(self):
+        try:
+            result = self._fn()
+        except Exception as e:
+            result = e
+        self.finished.emit(result)
+
+
+class MultiEncodeVectorConverterDockWidget(QtWidgets.QDialog):
 
     closingPlugin = pyqtSignal()
 
@@ -110,6 +155,7 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
 
     def __init__(self, parent=None):
         """Constructor."""
+        _debug_log("dockwidget __init__ start")
         super(MultiEncodeVectorConverterDockWidget, self).__init__(parent)
 
         self._plugin_dir = os.path.dirname(__file__)
@@ -120,6 +166,10 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
         main_widget = QWidget()
         layout = QVBoxLayout()
 
+        # ── Conversion Steps (wraps A/B/C so the sequence reads as one block) ──
+        self.group_outer = QGroupBox(self.tr("Conversion Steps"))
+        layout_outer = QVBoxLayout()
+
         # ── A: Input Source ──────────────────────────────────────────
         self.group_a = QGroupBox(self.tr("A: Input Source"))
         group_a = self.group_a
@@ -127,7 +177,7 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
 
         rb_row = QHBoxLayout()
         self.rb_layer = QRadioButton(self.tr("QGIS Layer"))
-        self.rb_layer_csv = QRadioButton(self.tr("QGIS Layer + CSV"))
+        self.rb_layer_csv = QRadioButton(self.tr("QGIS Layer + Join File"))
         self.rb_shp = QRadioButton(self.tr("Shapefile"))
         self.rb_layer.setChecked(True)
         rb_row.addWidget(self.rb_layer)
@@ -137,15 +187,16 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
 
         # Stacked input detail controls
         self.input_stack = QStackedWidget()
-        self.input_stack.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.input_stack.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         # Page 0: QGIS Layer only
         page_layer = QWidget()
         pl_layout = QHBoxLayout()
         pl_layout.setContentsMargins(0, 0, 0, 0)
         pl_layout.setSpacing(6)
-        pl_layout.setAlignment(Qt.AlignTop)
-        pl_layout.addWidget(QLabel(self.tr("Layer")))
+        pl_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.lbl_layer = QLabel(self.tr("Layer"))
+        pl_layout.addWidget(self.lbl_layer)
         self.cb_layer = QComboBox()
         pl_layout.addWidget(self.cb_layer)
         page_layer.setLayout(pl_layout)
@@ -160,30 +211,40 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
         row_lc_layer = QHBoxLayout()
         row_lc_layer.setContentsMargins(0, 0, 0, 0)
         row_lc_layer.setSpacing(6)
-        row_lc_layer.addWidget(QLabel(self.tr("Layer")))
+        self.lbl_layer_csv = QLabel(self.tr("Layer"))
+        row_lc_layer.addWidget(self.lbl_layer_csv)
         self.cb_layer_csv = QComboBox()
         row_lc_layer.addWidget(self.cb_layer_csv)
 
         row_lc_csv = QHBoxLayout()
         row_lc_csv.setContentsMargins(0, 0, 0, 0)
         row_lc_csv.setSpacing(6)
-        row_lc_csv.addWidget(QLabel(self.tr("CSV")))
+        self.lbl_join_file = QLabel(self.tr("Join File"))
+        row_lc_csv.addWidget(self.lbl_join_file)
         self.btn_browse_csv = QPushButton(self.tr("Browse"))
         self.btn_browse_csv.clicked.connect(self._on_browse_csv)
         self.le_csv_path = QLineEdit()
-        self.le_csv_path.setPlaceholderText(self.tr("Select a .csv file"))
+        self.le_csv_path.setPlaceholderText(self.tr("Select a CSV or Excel file"))
         row_lc_csv.addWidget(self.btn_browse_csv)
         row_lc_csv.addWidget(self.le_csv_path)
 
         row_lc_join = QHBoxLayout()
         row_lc_join.setContentsMargins(0, 0, 0, 0)
         row_lc_join.setSpacing(4)
-        row_lc_join.addWidget(QLabel(self.tr("Join key")))
+        self.lbl_join_key = QLabel(self.tr("Join key"))
+        self.lbl_join_key.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        row_lc_join.addWidget(self.lbl_join_key)
+        join_key_row = QHBoxLayout()
+        join_key_row.setContentsMargins(0, 0, 0, 0)
+        join_key_row.setSpacing(2)
         self.cb_layer_field = QComboBox()
-        row_lc_join.addWidget(self.cb_layer_field)
-        row_lc_join.addWidget(QLabel("="))
+        join_key_row.addWidget(self.cb_layer_field)
+        lbl_join_eq = QLabel("=")
+        lbl_join_eq.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        join_key_row.addWidget(lbl_join_eq)
         self.cb_csv_field = QComboBox()
-        row_lc_join.addWidget(self.cb_csv_field)
+        join_key_row.addWidget(self.cb_csv_field)
+        row_lc_join.addLayout(join_key_row)
 
         plc_layout.addLayout(row_lc_layer)
         plc_layout.addLayout(row_lc_csv)
@@ -197,8 +258,9 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
         ps_layout = QHBoxLayout()
         ps_layout.setContentsMargins(0, 0, 0, 0)
         ps_layout.setSpacing(6)
-        ps_layout.setAlignment(Qt.AlignTop)
-        ps_layout.addWidget(QLabel(self.tr("Shapefile")))
+        ps_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.lbl_shp = QLabel(self.tr("Shapefile"))
+        ps_layout.addWidget(self.lbl_shp)
         self.le_shp_path = QLineEdit()
         self.le_shp_path.setPlaceholderText(self.tr("Select a .shp file"))
         self.btn_browse_shp = QPushButton(self.tr("Browse"))
@@ -220,71 +282,83 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
 
         self.lbl_input_description = QLabel()
         self.lbl_input_description.setWordWrap(True)
+        self.lbl_input_description.setMinimumHeight(
+            self.lbl_input_description.fontMetrics().lineSpacing() * 2
+        )
         layout_a.addWidget(self.input_stack)
         layout_a.addWidget(self.lbl_input_description)
         group_a.setLayout(layout_a)
-        layout.addWidget(group_a)
+        layout_outer.addWidget(group_a)
 
-        # ── Info labels (outside group_a) ─────────────────────────────
-        # Detected join info — shown in Layer mode when joins exist
-        self.lbl_join_info = QLabel()
-        self.lbl_join_info.setWordWrap(True)
-        self.lbl_join_info.setAlignment(Qt.AlignCenter)
-        self.lbl_join_info.setVisible(False)
-        layout.addWidget(self.lbl_join_info)
-
-        # GPKG source check / layer status
-        self.lbl_layer_check = QLabel()
-        self.lbl_layer_check.setWordWrap(True)
-        self.lbl_layer_check.setAlignment(Qt.AlignCenter)
-        layout.addWidget(self.lbl_layer_check)
+        # ── Status labels (outside group_a) ───────────────────────────
+        self.group_status = QGroupBox()
+        layout_status = QVBoxLayout()
+        self.lbl_status_detection = QLabel()
+        self.lbl_status_action = QLabel()
+        self.lbl_status_report = QLabel()
+        for label in (
+            self.lbl_status_detection,
+            self.lbl_status_action,
+            self.lbl_status_report,
+        ):
+            label.setWordWrap(True)
+            label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            label.setContentsMargins(label.fontMetrics().horizontalAdvance("  "), 0, 0, 0)
+            label.setMinimumHeight(label.fontMetrics().lineSpacing())
+            layout_status.addWidget(label)
+        self.group_status.setLayout(layout_status)
+        layout_outer.addWidget(self.group_status)
 
         # ── B: Encoding ───────────────────────────────────────────────
         self.group_b = QGroupBox(self.tr("B: Encoding"))
         group_b = self.group_b
-        layout_b = QHBoxLayout()
+        layout_b = QVBoxLayout()
 
         enc_items = list(self._ENCODING_CODEC.keys())
 
-        # Left column: Layer encoding
+        # Layer encoding (full width)
         widget_layer_enc = QWidget()
         layout_layer_enc = QVBoxLayout()
-        layout_layer_enc.setContentsMargins(0, 0, 4, 0)
+        layout_layer_enc.setContentsMargins(0, 0, 0, 0)
         layout_layer_enc.setSpacing(4)
         self.lbl_layer_enc_title = QLabel(self.tr("Layer Encoding"))
-        self.lbl_layer_enc_title.setAlignment(Qt.AlignCenter)
+        self.lbl_layer_enc_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout_layer_enc.addWidget(self.lbl_layer_enc_title)
         self.cb_encoding = QComboBox()
         self.cb_encoding.addItems(enc_items)
         layout_layer_enc.addWidget(self.cb_encoding)
+        self.cb_enc_preview_target = QComboBox()
+        self.cb_enc_preview_target.currentIndexChanged.connect(self._refresh_enc_preview_label)
+        layout_layer_enc.addWidget(self.cb_enc_preview_target)
         self.lbl_enc_preview = QLabel(self.tr("Preview: (select a source)"))
         self.lbl_enc_preview.setWordWrap(True)
-        self.lbl_enc_preview.setAlignment(Qt.AlignCenter)
+        self.lbl_enc_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout_layer_enc.addWidget(self.lbl_enc_preview)
-        layout_layer_enc.addStretch()
         widget_layer_enc.setLayout(layout_layer_enc)
 
-        # Vertical separator
+        # Horizontal separator
         separator = QFrame()
-        separator.setFrameShape(QFrame.VLine)
-        separator.setFrameShadow(QFrame.Sunken)
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
 
-        # Right column: CSV encoding (grayed out when no CSV)
+        # CSV encoding (full width, grayed out when no CSV)
         self.widget_csv_enc = QWidget()
         layout_csv_enc = QVBoxLayout()
-        layout_csv_enc.setContentsMargins(4, 0, 0, 0)
+        layout_csv_enc.setContentsMargins(0, 0, 0, 0)
         layout_csv_enc.setSpacing(4)
-        self.lbl_csv_enc_title = QLabel(self.tr("CSV Encoding"))
-        self.lbl_csv_enc_title.setAlignment(Qt.AlignCenter)
+        self.lbl_csv_enc_title = QLabel(self.tr("Join File Encoding"))
+        self.lbl_csv_enc_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout_csv_enc.addWidget(self.lbl_csv_enc_title)
         self.cb_csv_encoding = QComboBox()
         self.cb_csv_encoding.addItems(enc_items)
         layout_csv_enc.addWidget(self.cb_csv_encoding)
-        self.lbl_csv_enc_preview = QLabel(self.tr("Preview: (no CSV source)"))
+        self.cb_csv_enc_preview_target = QComboBox()
+        self.cb_csv_enc_preview_target.currentIndexChanged.connect(self._refresh_csv_enc_preview_label)
+        layout_csv_enc.addWidget(self.cb_csv_enc_preview_target)
+        self.lbl_csv_enc_preview = QLabel(self.tr("Preview: (no join file)"))
         self.lbl_csv_enc_preview.setWordWrap(True)
-        self.lbl_csv_enc_preview.setAlignment(Qt.AlignCenter)
+        self.lbl_csv_enc_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout_csv_enc.addWidget(self.lbl_csv_enc_preview)
-        layout_csv_enc.addStretch()
         self.widget_csv_enc.setLayout(layout_csv_enc)
         self.widget_csv_enc.setEnabled(False)
 
@@ -292,8 +366,14 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
         layout_b.addWidget(separator)
         layout_b.addWidget(self.widget_csv_enc)
 
+        self.progress_bar_b = QProgressBar()
+        self.progress_bar_b.setRange(0, 100)
+        self.progress_bar_b.setValue(0)
+        self.progress_bar_b.setTextVisible(False)
+        layout_b.addWidget(self.progress_bar_b)
+
         group_b.setLayout(layout_b)
-        layout.addWidget(group_b)
+        layout_outer.addWidget(group_b)
 
         # ── C: Output Format ──────────────────────────────────────────
         self.group_c = QGroupBox(self.tr("C: Output Format"))
@@ -312,12 +392,15 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
         self.progress_bar.setVisible(False)
         layout_c.addWidget(self.progress_bar)
         group_c.setLayout(layout_c)
-        layout.addWidget(group_c)
+        layout_outer.addWidget(group_c)
 
         self.lbl_result_summary = QLabel(self.tr("Result: No execution yet."))
         self.lbl_result_summary.setWordWrap(True)
-        self.lbl_result_summary.setAlignment(Qt.AlignCenter)
-        layout.addWidget(self.lbl_result_summary)
+        self.lbl_result_summary.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout_outer.addWidget(self.lbl_result_summary)
+
+        self.group_outer.setLayout(layout_outer)
+        layout.addWidget(self.group_outer)
 
         # ── Important Note ────────────────────────────────────────────
         self.group_note = QGroupBox(self.tr("Important Note"))
@@ -336,7 +419,8 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
 
         # ── Language Switcher (bottom-left) ───────────────────────────
         lang_row = QHBoxLayout()
-        lang_row.addWidget(QLabel("Language:"))
+        self.lbl_language = QLabel()
+        lang_row.addWidget(self.lbl_language)
         self.cb_language = QComboBox()
         for _, display in self._LANGUAGES:
             self.cb_language.addItem(display)
@@ -345,7 +429,9 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
         layout.addLayout(lang_row)
 
         main_widget.setLayout(layout)
-        self.setWidget(main_widget)
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.addWidget(main_widget)
 
         # Connections
         self.rb_layer.toggled.connect(self._update_input_mode)
@@ -353,10 +439,10 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
         self.rb_shp.toggled.connect(self._update_input_mode)
         self.cb_layer.currentIndexChanged.connect(self._on_layer_changed)
         self.cb_layer_csv.currentIndexChanged.connect(self._on_layer_csv_changed)
+        self.le_shp_path.editingFinished.connect(self._on_shp_path_edited)
+        self.le_csv_path.editingFinished.connect(self._on_csv_path_edited)
         self.cb_encoding.currentIndexChanged.connect(self._update_enc_preview)
         self.cb_csv_encoding.currentIndexChanged.connect(self._update_csv_enc_preview)
-        QgsProject.instance().layersAdded.connect(self._refresh_layer_list)
-        QgsProject.instance().layersRemoved.connect(self._refresh_layer_list)
 
         self.cb_language.currentIndexChanged.connect(self._on_language_changed)
 
@@ -364,9 +450,18 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
         self._worker = None
         self._pending_output_path = ""
 
+        self._scan_thread = None
+        self._scan_worker = None
+        self._scan_pending = False
+        self._scan_scheduled = False
+        self._scan_active = False
+        self._ui_ready = False
+
         self._refresh_layer_list()
         self._update_input_mode()
         self._apply_language(self._detect_initial_locale())
+        self._ui_ready = True
+        _debug_log("dockwidget __init__ done")
 
     # ── Language management ────────────────────────────────────────────
 
@@ -407,17 +502,23 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
 
     def _retranslate_ui(self):
         self.setWindowTitle(self.tr("Multi-Encode Vector Converter"))
+        self.group_outer.setTitle(self.tr("Conversion Steps"))
         self.group_a.setTitle(self.tr("A: Input Source"))
         self.rb_layer.setText(self.tr("QGIS Layer"))
-        self.rb_layer_csv.setText(self.tr("QGIS Layer + CSV"))
+        self.rb_layer_csv.setText(self.tr("QGIS Layer + Join File"))
         self.rb_shp.setText(self.tr("Shapefile"))
+        self.lbl_layer.setText(self.tr("Layer"))
+        self.lbl_layer_csv.setText(self.tr("Layer"))
+        self.lbl_join_file.setText(self.tr("Join File"))
+        self.lbl_join_key.setText(self.tr("Join key"))
+        self.lbl_shp.setText(self.tr("Shapefile"))
         self.btn_browse_csv.setText(self.tr("Browse"))
-        self.le_csv_path.setPlaceholderText(self.tr("Select a .csv file"))
+        self.le_csv_path.setPlaceholderText(self.tr("Select a CSV or Excel file"))
         self.le_shp_path.setPlaceholderText(self.tr("Select a .shp file"))
         self.btn_browse_shp.setText(self.tr("Browse"))
         self.group_b.setTitle(self.tr("B: Encoding"))
         self.lbl_layer_enc_title.setText(self.tr("Layer Encoding"))
-        self.lbl_csv_enc_title.setText(self.tr("CSV Encoding"))
+        self.lbl_csv_enc_title.setText(self.tr("Join File Encoding"))
         self.group_c.setTitle(self.tr("C: Output Format"))
         self.lbl_gpkg.setText(self.tr("GeoPackage (GPKG, Recommended)"))
         self.lbl_output_hint.setText(self.tr("Output path will be selected when Execute is clicked."))
@@ -429,21 +530,37 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
             "It improves normalization and integration issues, but cannot fully restore\n"
             "information already lost by legacy format limits or irreversible conversions."
         ))
+        self.lbl_language.setText(self.tr("Language:"))
+        self._update_input_description()
+        self._update_status_lines()
 
     # ── Layer list management ──────────────────────────────────────────
 
     def _refresh_layer_list(self):
         """Reload layer names from current QGIS project into both layer combos."""
+        _debug_log("_refresh_layer_list start")
         placeholder = self.tr("Please select a QGIS layer")
+        previous = {
+            self.cb_layer: self.cb_layer.currentData(),
+            self.cb_layer_csv: self.cb_layer_csv.currentData(),
+        }
         for cb in (self.cb_layer, self.cb_layer_csv):
+            cb.blockSignals(True)
             cb.clear()
             cb.addItem(placeholder, "")
 
-        layers = list(QgsProject.instance().mapLayers().values())
+        layers = self._project_layers_in_panel_order()
+        _debug_log("_refresh_layer_list project layer_count={}".format(len(layers)))
         if not layers:
             no_layers = self.tr("(No layers loaded)")
             for cb in (self.cb_layer, self.cb_layer_csv):
                 cb.addItem(no_layers, "")
+                cb.blockSignals(False)
+            self._update_layer_conversion_hint()
+            self._update_join_info()
+            if self.rb_layer_csv.isChecked():
+                self._populate_layer_fields(None)
+            _debug_log("_refresh_layer_list done no layers")
             return
 
         for layer in layers:
@@ -456,6 +573,33 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
                 continue
             for cb in (self.cb_layer, self.cb_layer_csv):
                 cb.addItem(layer.name(), layer.id())
+
+        for cb in (self.cb_layer, self.cb_layer_csv):
+            old_id = previous.get(cb)
+            if old_id:
+                idx = cb.findData(old_id)
+                if idx >= 0:
+                    cb.setCurrentIndex(idx)
+            cb.blockSignals(False)
+
+        self._update_layer_conversion_hint()
+        self._update_join_info()
+        if self.rb_layer_csv.isChecked():
+            self._populate_layer_fields(self._get_selected_layer_csv())
+        _debug_log("_refresh_layer_list done")
+
+    @staticmethod
+    def _project_layers_in_panel_order():
+        """Return loaded layers in the same top-to-bottom order as the Layers panel."""
+        seen = set()
+        layers = []
+        for node in QgsProject.instance().layerTreeRoot().findLayers():
+            layer = node.layer()
+            if layer is None or layer.id() in seen:
+                continue
+            seen.add(layer.id())
+            layers.append(layer)
+        return layers
 
     def _get_selected_layer(self):
         """Return layer object selected in Layer-only combo, or None."""
@@ -499,26 +643,34 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
         """Switch input controls and update info labels by selected source option."""
         if self.rb_layer.isChecked():
             self.input_stack.setCurrentIndex(0)
-            self.lbl_input_description.setText(
-                self.tr("Select a loaded QGIS layer. Existing joins will be detected automatically.")
-            )
         elif self.rb_layer_csv.isChecked():
             self.input_stack.setCurrentIndex(1)
-            self.lbl_input_description.setText(
-                self.tr("Select a layer and specify a CSV to join. Join key fields must be set.")
-            )
         else:
             self.input_stack.setCurrentIndex(2)
-            self.lbl_input_description.setText(
-                self.tr(
-                    "Select a Shapefile to import directly. "
-                    "Load into QGIS first if you also need a CSV join."
-                )
-            )
+        self._update_input_description()
 
         self._update_layer_conversion_hint()
         self._update_join_info()
         self._update_csv_enc_visibility()
+        self._start_source_scan()
+
+    def _update_input_description(self):
+        """Refresh A-group description text for the current input mode."""
+        if self.rb_layer.isChecked():
+            self.lbl_input_description.setText(
+                self.tr("Select a loaded QGIS layer.\nExisting joins will be detected automatically.")
+            )
+        elif self.rb_layer_csv.isChecked():
+            self.lbl_input_description.setText(
+                self.tr("Select a layer and specify a join file (CSV or Excel).\nJoin key fields must be set.")
+            )
+        else:
+            self.lbl_input_description.setText(
+                self.tr(
+                    "Select a Shapefile to import directly.\n"
+                    "Load into QGIS first if you also need a CSV join."
+                )
+            )
 
     # ── Layer change handlers ─────────────────────────────────────────
 
@@ -527,7 +679,7 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
         self._update_layer_conversion_hint()
         self._update_join_info()
         self._update_csv_enc_visibility()
-        self._auto_detect_and_update_encoding()
+        self._start_source_scan()
 
     def _on_layer_csv_changed(self):
         """Handle layer selection change in Layer+CSV mode."""
@@ -535,59 +687,104 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
         self._populate_layer_fields(layer)
         self._update_layer_conversion_hint()
         self._update_join_info()
-        self._auto_detect_and_update_encoding()
+        self._start_source_scan()
 
     # ── Info label updates ────────────────────────────────────────────
 
     def _update_layer_conversion_hint(self):
-        """Show GPKG source check message (hidden in SHP mode)."""
+        """Compatibility wrapper: refresh the three status rows."""
+        self._update_status_lines()
+
+    def _update_join_info(self):
+        """Compatibility wrapper: refresh the three status rows."""
+        self._update_status_lines()
+
+    def _update_status_lines(self):
+        """Show status as detection / action / report rows."""
+        detection = ""
+        action = ""
+        report = ""
+        warning = False
+
         if self.rb_shp.isChecked():
-            self.lbl_layer_check.setStyleSheet("")
-            self.lbl_layer_check.clear()
+            shp_path = self.le_shp_path.text().strip()
+            if shp_path and os.path.isfile(shp_path):
+                detection = self.tr("Shapefile selected.")
+                action = self.tr("Decode attributes with the selected layer encoding and write GPKG.")
+                report = self.tr("No QGIS layer joins are used in direct Shapefile mode.")
+            else:
+                detection = self.tr("Shapefile not selected.")
+                action = self.tr("Select a .shp file.")
+                report = ""
+            self._set_status_lines(detection, action, report, warning)
             return
 
         layer = self._get_selected_layer() if self.rb_layer.isChecked() else self._get_selected_layer_csv()
+        join_path = self.le_csv_path.text().strip() if self.rb_layer_csv.isChecked() else ""
 
         if layer is None:
-            self.lbl_layer_check.setStyleSheet("")
-            self.lbl_layer_check.setText(
-                self.tr("Please select a QGIS layer to check whether conversion is required.")
-            )
+            detection = self.tr("QGIS layer not selected.")
+            action = self.tr("Select a QGIS layer.")
+            if self.rb_layer_csv.isChecked() and join_path:
+                report = self.tr("Join file selected; layer and join keys are still required.")
+            else:
+                report = ""
+            self._set_status_lines(detection, action, report, warning)
             return
 
-        if self._is_layer_source_gpkg(layer):
-            self.lbl_layer_check.setStyleSheet("color: #c62828;")
-            self.lbl_layer_check.setText(
-                self.tr(
-                    "This layer is already GPKG. "
-                    "If encoding normalization is unnecessary, conversion is not required."
-                )
+        is_gpkg = self._is_layer_source_gpkg(layer)
+        source_status = self.tr("GPKG") if is_gpkg else self.tr("not GPKG")
+
+        if self.rb_layer_csv.isChecked():
+            if join_path and os.path.isfile(join_path):
+                join_kind = self.tr("Excel") if self._is_xlsx_path(join_path) else self.tr("CSV")
+                join_status = self.tr("{} join file selected").format(join_kind)
+            else:
+                join_status = self.tr("join file not selected")
+            detection = self.tr("Source is {source}; {join}.").format(
+                source=source_status,
+                join=join_status,
             )
+            action = self.tr("Convert the layer to GPKG and merge the external join file.")
+            report = self.tr("Join key fields must match before execution.")
         else:
-            self.lbl_layer_check.setStyleSheet("")
-            self.lbl_layer_check.setText(
-                self.tr("This layer is not GPKG. Conversion to recommended GPKG will be applied.")
+            joins = self._detect_layer_joins(layer)
+            if joins:
+                join_names = ", ".join(j["name"] for j in joins)
+                join_status = self.tr("{} existing join(s) detected").format(len(joins))
+            else:
+                join_names = ""
+                join_status = self.tr("no existing joins detected")
+            detection = self.tr("Source is {source}; {join}.").format(
+                source=source_status,
+                join=join_status,
             )
+            if joins and is_gpkg:
+                action = self.tr("Reproduce existing joins into an output GPKG.")
+                report = self.tr("Join layer(s): {}.").format(join_names)
+                warning = True
+            elif joins:
+                action = self.tr("Convert to GPKG and reproduce existing joins.")
+                report = self.tr("Join layer(s): {}.").format(join_names)
+            elif is_gpkg:
+                action = self.tr("No conversion is required unless encoding normalization is needed.")
+                report = self.tr("No joins to reproduce.")
+                warning = True
+            else:
+                action = self.tr("Convert to recommended GPKG.")
+                report = self.tr("No joins to reproduce.")
 
-    def _update_join_info(self):
-        """Show detected join info outside group_a (Layer mode only)."""
-        if not self.rb_layer.isChecked():
-            self.lbl_join_info.setVisible(False)
-            return
+        self._set_status_lines(detection, action, report, warning)
 
-        joins = self._detect_layer_joins(self._get_selected_layer())
-        if not joins:
-            self.lbl_join_info.setVisible(False)
-            return
-
-        lines = [
-            self.tr('Join "{name}" detected. Join state will be reproduced in GPKG.').format(
-                name=j["name"]
-            )
-            for j in joins
-        ]
-        self.lbl_join_info.setText("\n".join(lines))
-        self.lbl_join_info.setVisible(True)
+    def _set_status_lines(self, detection, action, report, warning=False):
+        """Apply the three A/B status rows."""
+        color = "color: #c62828;" if warning else ""
+        self.lbl_status_detection.setStyleSheet(color)
+        self.lbl_status_action.setStyleSheet("")
+        self.lbl_status_report.setStyleSheet("")
+        self.lbl_status_detection.setText(detection)
+        self.lbl_status_action.setText(action)
+        self.lbl_status_report.setText(report)
 
     # ── File browse handlers ──────────────────────────────────────────
 
@@ -598,17 +795,37 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
         )
         if path:
             self.le_shp_path.setText(path)
-            self._auto_detect_and_update_encoding()
+            self._update_layer_conversion_hint()
+            self._update_join_info()
+            self._start_source_scan()
 
     def _on_browse_csv(self):
-        """Open file dialog to select CSV and populate field combo."""
+        """Open file dialog to select a join file (CSV or Excel) and scan it."""
         path, _ = QFileDialog.getOpenFileName(
-            self, self.tr("Select CSV"), "", "CSV (*.csv)"
+            self, self.tr("Select Join File"), "",
+            self.tr("CSV/Excel (*.csv *.xlsx);;CSV (*.csv);;Excel (*.xlsx)")
         )
         if path:
             self.le_csv_path.setText(path)
-            self._populate_csv_fields(path)
-            self._auto_detect_and_update_encoding()
+            self._update_layer_conversion_hint()
+            self._update_join_info()
+            self._start_source_scan()
+
+    def _on_shp_path_edited(self):
+        """Handle a Shapefile path typed/pasted directly (not via Browse)."""
+        path = self.le_shp_path.text().strip()
+        if path and os.path.isfile(path):
+            self._update_layer_conversion_hint()
+            self._update_join_info()
+            self._start_source_scan()
+
+    def _on_csv_path_edited(self):
+        """Handle a CSV path typed/pasted directly (not via Browse)."""
+        path = self.le_csv_path.text().strip()
+        if path and os.path.isfile(path):
+            self._update_layer_conversion_hint()
+            self._update_join_info()
+            self._start_source_scan()
 
     # ── Encoding detection & preview ─────────────────────────────────
 
@@ -618,27 +835,93 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
 
     def _set_encoding_combo(self, codec):
         """Set cb_encoding to the item whose codec matches. Falls back to Auto Detect."""
-        if not codec:
-            self.cb_encoding.setCurrentIndex(0)
-            return
-        norm = codec.lower().replace("-", "").replace("_", "")
-        for i in range(self.cb_encoding.count()):
-            enc = self._ENCODING_CODEC.get(self.cb_encoding.itemText(i))
-            if enc and enc.lower().replace("-", "").replace("_", "") == norm:
-                self.cb_encoding.setCurrentIndex(i)
+        self.cb_encoding.blockSignals(True)
+        try:
+            if not codec:
+                self.cb_encoding.setCurrentIndex(0)
                 return
-        self.cb_encoding.setCurrentIndex(0)
+            norm = codec.lower().replace("-", "").replace("_", "")
+            for i in range(self.cb_encoding.count()):
+                enc = self._ENCODING_CODEC.get(self.cb_encoding.itemText(i))
+                if enc and enc.lower().replace("-", "").replace("_", "") == norm:
+                    self.cb_encoding.setCurrentIndex(i)
+                    return
+            self.cb_encoding.setCurrentIndex(0)
+        finally:
+            self.cb_encoding.blockSignals(False)
 
-    @staticmethod
-    def _auto_detect_encoding_from_file(shp_path):
-        """Return encoding string from .cpg sidecar, or None if absent/unreadable."""
+    @classmethod
+    def _auto_detect_encoding_from_file(cls, shp_path):
+        """Return encoding from .cpg sidecar; if absent, probe the DBF by decoding. None if neither works."""
         cpg_path = os.path.splitext(shp_path)[0] + ".cpg"
         if os.path.isfile(cpg_path):
             try:
                 with open(cpg_path, "r", errors="ignore") as f:
-                    return f.read().strip() or None
+                    enc = f.read().strip()
+                    if enc:
+                        return enc
             except OSError:
                 pass
+        return cls._detect_dbf_encoding_heuristic(shp_path)
+
+    @staticmethod
+    def _detect_dbf_encoding_heuristic(shp_path):
+        """No .cpg sidecar: strict-decode field names and sample values to guess the codec.
+
+        Tries CP932 (common for legacy Japanese SHP/DBF without a .cpg) then UTF-8;
+        returns the first codec that decodes every sampled chunk cleanly, or None.
+        """
+        dbf_path = os.path.splitext(shp_path)[0] + ".dbf"
+        if not os.path.isfile(dbf_path):
+            return None
+        try:
+            with open(dbf_path, "rb") as f:
+                hdr = f.read(32)
+                if len(hdr) < 32:
+                    return None
+                record_count = int.from_bytes(hdr[4:8], "little")
+                header_size = int.from_bytes(hdr[8:10], "little")
+                record_size = int.from_bytes(hdr[10:12], "little")
+                n_fields = (header_size - 33) // 32
+
+                chunks = []
+                offsets = []
+                rec_offset = 1  # byte 0 is deletion flag
+                f.seek(32)
+                for _ in range(n_fields):
+                    desc = f.read(32)
+                    if len(desc) < 32 or desc[0] == 0x0D:
+                        break
+                    name_raw = desc[0:11].split(b"\x00")[0]
+                    flen = desc[16]
+                    if name_raw:
+                        chunks.append(name_raw)
+                    offsets.append((rec_offset, flen))
+                    rec_offset += flen
+
+                f.seek(header_size)
+                for _ in range(min(record_count, 20)):
+                    record = f.read(record_size)
+                    if len(record) < record_size:
+                        break
+                    if record[0] == 0x2A:  # deleted record
+                        continue
+                    for foffset, flen in offsets:
+                        raw = record[foffset:foffset + flen].strip()
+                        if raw:
+                            chunks.append(raw)
+        except OSError:
+            return None
+
+        if not chunks:
+            return None
+        for codec in ("cp932", "utf-8"):
+            try:
+                for chunk in chunks:
+                    chunk.decode(codec, errors="strict")
+                return codec
+            except UnicodeDecodeError:
+                continue
         return None
 
     @staticmethod
@@ -649,26 +932,262 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
         enc = layer.dataProvider().encoding()
         return enc if enc and enc.upper() not in ("SYSTEM", "") else None
 
-    def _auto_detect_and_update_encoding(self):
-        """Auto-detect source encoding and refresh the preview."""
+    # Note: SHP-backed layers must never trust dataProvider().encoding() — QGIS
+    # reports a plausible-looking 'UTF-8' default even when there is no .cpg and the
+    # DBF is actually CP932. _build_scan_task branches on source_path.endswith('.shp')
+    # for exactly this reason: SHP-backed layers go through the .cpg/DBF heuristic
+    # (_auto_detect_encoding_from_file) instead of _auto_detect_encoding_from_layer.
+
+    # ── Background source scan ──────────────────────────────────────────
+    #
+    # Auto-detecting encodings and reading preview/header samples involves file I/O
+    # (DBF/CSV/XLSX reads). Keep it on the main QGIS thread: QgsVectorLayer/provider
+    # access from a plain QThread can crash the whole QGIS process.
+
+    def _start_source_scan(self):
+        """Kick off a background scan of the current source(s), or queue one if busy.
+
+        No-ops while the widget is still being constructed (__init__ calls
+        _update_input_mode before it's done setting up, e.g. _apply_language runs
+        right after) — starting a thread mid-construction risks racing that
+        remaining setup against the worker's QGIS/GDAL calls. Real scans begin once
+        the user actually interacts (mode switch, layer change, file browse), all of
+        which happen after construction finishes.
+        """
+        _debug_log("_start_source_scan ui_ready={} scan_busy={} scan_scheduled={} scan_active={}".format(
+            self._ui_ready,
+            self._scan_thread is not None,
+            self._scan_scheduled,
+            self._scan_active,
+        ))
+        if not self._ui_ready:
+            return
+        if self._scan_thread is not None or self._scan_scheduled or self._scan_active:
+            self._scan_pending = True
+            return
+        self._scan_scheduled = True
+        QTimer.singleShot(0, self._launch_scan)
+
+    def _set_scan_progress_value(self, value, repaint=True):
+        """Keep the B progress bar in place and show staged detection progress."""
+        self.progress_bar_b.setRange(0, 100)
+        self.progress_bar_b.setValue(max(0, min(100, int(value))))
+        if repaint:
+            QtWidgets.QApplication.processEvents()
+
+    def _reset_scan_progress(self):
+        """Return the B progress bar to its idle, layout-stable state."""
+        self._set_scan_progress_value(0, repaint=False)
+
+    def _build_scan_task(self):
+        """Snapshot everything the background scan needs. Main thread only.
+
+        Plain widget values and simple QGIS property reads (layer.source(),
+        .dataProvider().encoding()) are gathered here, same as before. But QGIS
+        feature iteration (layer.getFeatures(), used for non-SHP layers like GPKG)
+        and non-stdlib provider calls are NOT safe to run from a worker
+        thread against these live objects — QGIS/provider objects are not thread-safe for
+        arbitrary cross-thread access to the same handles the main thread also uses.
+        So those two are also resolved here, synchronously, and handed to
+        _scan_sources as an already-computed result; only pure-Python file I/O (raw
+        .dbf/.cpg/.csv bytes via plain open()) is left for the background thread to
+        actually perform — which also happens to be the slow-for-large-files case
+        this plugin cares about (legacy Shift_JIS Shapefiles/CSVs).
+        """
+        task = {"shp_reread_path": None, "main_result": None}
+
         if self.rb_shp.isChecked():
-            shp_path = self.le_shp_path.text().strip()
-            codec = self._auto_detect_encoding_from_file(shp_path) if shp_path else None
+            task["shp_reread_path"] = self.le_shp_path.text().strip()
         else:
             layer = (
                 self._get_selected_layer()
                 if self.rb_layer.isChecked()
                 else self._get_selected_layer_csv()
             )
-            codec = self._auto_detect_encoding_from_layer(layer)
-        self._set_encoding_combo(codec)
-        self._update_enc_preview()
+            if layer is not None and isinstance(layer, QgsVectorLayer):
+                source_path = layer.source().split("|")[0].strip()
+                if source_path.lower().endswith(".shp") and os.path.isfile(source_path):
+                    task["shp_reread_path"] = source_path
+                else:
+                    codec = self._auto_detect_encoding_from_layer(layer)
+                    task["main_result"] = (codec, self._read_layer_sample(layer))
+            else:
+                task["main_result"] = (None, None)
 
-        # CSV encoding — only when the CSV column is enabled
-        if self.widget_csv_enc.isEnabled():
-            csv_codec = self._auto_detect_csv_encoding()
-            self._set_csv_encoding_combo(csv_codec)
-            self._update_csv_enc_preview()
+        task["csv_enabled"] = self.widget_csv_enc.isEnabled()
+        task["join_path"] = None
+        task["join_layer_codec_hint"] = None
+        task["csv_result"] = None
+        if task["csv_enabled"]:
+            task["join_path"] = self._current_join_source_path()
+            if task["join_path"] and self._is_xlsx_path(task["join_path"]):
+                task["csv_result"] = ("utf-8", self._read_xlsx_sample(task["join_path"]))
+            else:
+                join_layer = self._current_join_layer()
+                task["join_layer_codec_hint"] = (
+                    self._auto_detect_encoding_from_layer(join_layer) if join_layer else None
+                )
+
+        task["layer_csv_mode"] = self.rb_layer_csv.isChecked()
+        task["csv_field_path"] = None
+        task["join_field_headers_result"] = None
+        if task["layer_csv_mode"]:
+            csv_path = self.le_csv_path.text().strip()
+            if csv_path and os.path.isfile(csv_path):
+                task["csv_field_path"] = csv_path
+                if self._is_xlsx_path(csv_path):
+                    task["join_field_headers_result"] = self._read_xlsx_headers(csv_path)
+        return task
+
+    def _launch_scan(self):
+        _debug_log("_launch_scan start")
+        self._scan_scheduled = False
+        self._scan_active = True
+        self._set_scan_progress_value(5)
+        task = self._build_scan_task()
+        self._set_scan_progress_value(20)
+        try:
+            result = self._scan_sources(task)
+        except Exception as e:
+            result = e
+        _debug_log("_launch_scan synchronous scan done")
+        self._on_scan_finished(result)
+
+    def _scan_sources(self, task):
+        """Background-thread body — pure-Python file I/O only (raw .dbf/.cpg/.csv reads).
+
+        No QGIS layer object or GDAL call is touched here: _build_scan_task already
+        resolved those synchronously on the main thread (task["main_result"] /
+        task["csv_result"] / task["join_field_headers_result"]); this function only
+        opens plain files with the stdlib and never touches a widget or QgsProject.
+        """
+        result = {}
+
+        self._set_scan_progress_value(30)
+        if task["main_result"] is not None:
+            main_codec, main_preview = task["main_result"]
+        else:
+            shp_path = task["shp_reread_path"]
+            main_codec = self._auto_detect_encoding_from_file(shp_path) if shp_path else None
+            main_preview = (
+                self._get_preview_values(main_codec, shp_path=shp_path) if shp_path else None
+            )
+        result["main_codec"] = main_codec
+        result["main_preview"] = main_preview
+        self._set_scan_progress_value(50)
+
+        result["csv_enabled"] = task["csv_enabled"]
+        if task["csv_enabled"]:
+            if task["csv_result"] is not None:
+                csv_codec, csv_preview = task["csv_result"]
+                result["csv_is_xlsx"] = True
+            else:
+                join_path = task["join_path"]
+                csv_codec = task["join_layer_codec_hint"]
+                if not csv_codec and join_path:
+                    csv_codec = self._detect_csv_file_encoding(join_path)
+                csv_preview = self._get_csv_preview_values(csv_codec, join_path)
+                result["csv_is_xlsx"] = False
+            result["csv_codec"] = csv_codec
+            result["csv_preview"] = csv_preview
+            self._set_scan_progress_value(70)
+
+            if task["join_field_headers_result"] is not None:
+                result["join_field_headers"] = task["join_field_headers_result"]
+            elif task["layer_csv_mode"] and task["csv_field_path"]:
+                result["join_field_headers"] = self._read_csv_headers(task["csv_field_path"])
+            self._set_scan_progress_value(82)
+        else:
+            self._set_scan_progress_value(82)
+
+        return result
+
+    def _on_scan_finished(self, result):
+        """Apply a finished scan's results to the widgets (main thread only)."""
+        _debug_log("_on_scan_finished result_type={}".format(type(result).__name__))
+        self._scan_thread = None
+        self._scan_worker = None
+        self._scan_active = False
+
+        if self._scan_pending:
+            self._scan_pending = False
+            self._start_source_scan()
+            return
+
+        try:
+            self._set_scan_progress_value(88)
+        except RuntimeError:
+            # The dock widget's C++ object was already deleted (e.g. panel closed
+            # while this scan was in flight) — nothing left to update.
+            return
+        if isinstance(result, Exception):
+            _debug_log("_on_scan_finished exception_result={}".format(result))
+            self._reset_scan_progress()
+            return
+
+        _debug_log("_on_scan_finished set main encoding start")
+        self._set_encoding_combo(result["main_codec"])
+        _debug_log("_on_scan_finished apply main preview start")
+        self._apply_enc_preview_values(result["main_preview"])
+        _debug_log("_on_scan_finished main preview done")
+
+        if result.get("csv_enabled"):
+            _debug_log("_on_scan_finished csv apply start")
+            is_xlsx = result["csv_is_xlsx"]
+            self.cb_csv_encoding.setEnabled(not is_xlsx)
+            if is_xlsx:
+                _debug_log("_on_scan_finished csv is xlsx")
+                self._set_csv_encoding_combo("utf-8")
+                self.cb_csv_encoding.setToolTip(
+                    self.tr("Excel files are always UTF-8 — encoding selection is not needed.")
+                )
+            else:
+                _debug_log("_on_scan_finished csv is text")
+                self.cb_csv_encoding.setToolTip("")
+                self._set_csv_encoding_combo(result["csv_codec"])
+            _debug_log("_on_scan_finished apply csv preview start")
+            self._apply_csv_enc_preview_values(result["csv_preview"])
+            _debug_log("_on_scan_finished csv preview done")
+
+            if "join_field_headers" in result:
+                _debug_log("_on_scan_finished apply join headers count={}".format(
+                    len(result["join_field_headers"])
+                ))
+                self.cb_csv_field.clear()
+                for h in result["join_field_headers"]:
+                    self.cb_csv_field.addItem(h)
+        self._set_scan_progress_value(100)
+        QTimer.singleShot(250, self._reset_scan_progress)
+        _debug_log("_on_scan_finished done")
+
+    def _current_join_source_path(self):
+        """Return the resolved join file path for the current mode, or None.
+
+        Main thread only (touches widgets and QgsProject).
+        """
+        if self.rb_layer_csv.isChecked():
+            csv_path = self.le_csv_path.text().strip()
+            return csv_path if csv_path and os.path.isfile(csv_path) else None
+        join_layer = self._current_join_layer()
+        if join_layer is not None:
+            return self._extract_join_source_path(join_layer.source())
+        return None
+
+    def _current_join_layer(self):
+        """Return the QGIS-configured join layer for 'QGIS Layer' mode, or None.
+
+        Main thread only (touches widgets and QgsProject).
+        """
+        if not self.rb_layer.isChecked():
+            return None
+        layer = self._get_selected_layer()
+        if layer is None or not isinstance(layer, QgsVectorLayer):
+            return None
+        for join_info in layer.vectorJoins():
+            join_layer = QgsProject.instance().mapLayer(join_info.joinLayerId())
+            if join_layer is not None:
+                return join_layer
+        return None
 
     # CSV encoding helpers ─────────────────────────────────────────────
 
@@ -689,16 +1208,20 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
 
     def _set_csv_encoding_combo(self, codec):
         """Set cb_csv_encoding to the item whose codec matches. Falls back to Auto Detect."""
-        if not codec:
-            self.cb_csv_encoding.setCurrentIndex(0)
-            return
-        norm = codec.lower().replace("-", "").replace("_", "")
-        for i in range(self.cb_csv_encoding.count()):
-            enc = self._ENCODING_CODEC.get(self.cb_csv_encoding.itemText(i))
-            if enc and enc.lower().replace("-", "").replace("_", "") == norm:
-                self.cb_csv_encoding.setCurrentIndex(i)
+        self.cb_csv_encoding.blockSignals(True)
+        try:
+            if not codec:
+                self.cb_csv_encoding.setCurrentIndex(0)
                 return
-        self.cb_csv_encoding.setCurrentIndex(0)
+            norm = codec.lower().replace("-", "").replace("_", "")
+            for i in range(self.cb_csv_encoding.count()):
+                enc = self._ENCODING_CODEC.get(self.cb_csv_encoding.itemText(i))
+                if enc and enc.lower().replace("-", "").replace("_", "") == norm:
+                    self.cb_csv_encoding.setCurrentIndex(i)
+                    return
+            self.cb_csv_encoding.setCurrentIndex(0)
+        finally:
+            self.cb_csv_encoding.blockSignals(False)
 
     @staticmethod
     def _detect_csv_file_encoding(path):
@@ -712,65 +1235,287 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
                 continue
         return None
 
-    def _auto_detect_csv_encoding(self):
-        """Detect encoding of the CSV source (file in Layer+CSV mode, or join layer source)."""
-        if self.rb_layer_csv.isChecked():
-            csv_path = self.le_csv_path.text().strip()
-            if csv_path and os.path.isfile(csv_path):
-                return self._detect_csv_file_encoding(csv_path)
-            return None
-        if self.rb_layer.isChecked():
-            layer = self._get_selected_layer()
-            if layer is None or not isinstance(layer, QgsVectorLayer):
-                return None
-            for join_info in layer.vectorJoins():
-                join_layer = QgsProject.instance().mapLayer(join_info.joinLayerId())
-                if join_layer is None:
-                    continue
-                enc = self._auto_detect_encoding_from_layer(join_layer)
-                if enc:
-                    return enc
-                join_path = self._extract_join_source_path(join_layer.source())
-                if join_path:
-                    return self._detect_csv_file_encoding(join_path)
-        return None
+    _PREVIEW_CHAR_LIMIT = 30
+
+    @classmethod
+    def _truncate_preview(cls, text):
+        """Cap a preview string at _PREVIEW_CHAR_LIMIT chars so it can never force the panel wider."""
+        if len(text) <= cls._PREVIEW_CHAR_LIMIT:
+            return text
+        return text[:cls._PREVIEW_CHAR_LIMIT] + "…"
+
+    def _preview_combo_label(self, index):
+        """Return the compact display text used by B-group preview combo boxes."""
+        return self.tr("Sample: {}").format(index)
 
     def _update_csv_enc_preview(self):
-        """Update lbl_csv_enc_preview with sample values from the CSV source."""
+        """Synchronous convenience wrapper: fetch then apply (used by the encoding combo signal)."""
         codec = self._get_csv_encoding_codec()
-        values = self._get_csv_preview_values(codec)
+        values = self._get_csv_preview_values(codec, self._current_join_source_path())
+        self._apply_csv_enc_preview_values(values)
+
+    def _apply_csv_enc_preview_values(self, values):
+        """Populate cb_csv_enc_preview_target from already-fetched values (widget mutation only)."""
+        self.cb_csv_enc_preview_target.blockSignals(True)
+        self.cb_csv_enc_preview_target.clear()
         if values:
+            for i, v in enumerate(values, start=1):
+                self.cb_csv_enc_preview_target.addItem(self._preview_combo_label(i), v)
+            self.cb_csv_enc_preview_target.setEnabled(True)
+            self.cb_csv_enc_preview_target.setCurrentIndex(0)
+        else:
+            self.cb_csv_enc_preview_target.setEnabled(False)
+        self.cb_csv_enc_preview_target.blockSignals(False)
+        self._refresh_csv_enc_preview_label()
+
+    def _refresh_csv_enc_preview_label(self, *_args):
+        """Show the value currently selected in cb_csv_enc_preview_target."""
+        if self.cb_csv_enc_preview_target.count() == 0:
             self.lbl_csv_enc_preview.setText(
-                self.tr("Preview: {}").format("  /  ".join(values))
+                self.tr("Preview: {}").format(self.tr("No sample"))
             )
-        elif values is None:
+            self.lbl_csv_enc_preview.setToolTip("")
+            return
+        full_text = self.cb_csv_enc_preview_target.currentData()
+        if full_text is None:
             self.lbl_csv_enc_preview.setText(
-                self.tr("Preview: (no CSV sample available)")
+                self.tr("Preview: {}").format(self.cb_csv_enc_preview_target.currentText())
             )
+            self.lbl_csv_enc_preview.setToolTip("")
         else:
             self.lbl_csv_enc_preview.setText(
-                self.tr("Preview: (ASCII only — encoding not critical)")
+                self.tr("Preview: {}").format(self._truncate_preview(full_text))
             )
+            self.lbl_csv_enc_preview.setToolTip(full_text)
 
-    def _get_csv_preview_values(self, codec):
-        """Return up to 3 non-ASCII string values, [] if all-ASCII, None if no data."""
-        if self.rb_layer_csv.isChecked():
-            csv_path = self.le_csv_path.text().strip()
-            if csv_path and os.path.isfile(csv_path):
-                return self._read_csv_sample(csv_path, codec)
+    def _get_csv_preview_values(self, codec, join_path):
+        """Return up to 3 non-ASCII string values, [] if all-ASCII, None if no data.
+
+        join_path must already be resolved by the caller (_current_join_source_path) —
+        this function performs no widget or QgsProject access, so it is safe to call
+        from a background thread.
+        """
+        if not join_path:
             return None
-        if self.rb_layer.isChecked():
-            layer = self._get_selected_layer()
-            if layer is None or not isinstance(layer, QgsVectorLayer):
-                return None
-            for join_info in layer.vectorJoins():
-                join_layer = QgsProject.instance().mapLayer(join_info.joinLayerId())
-                if join_layer is None:
+        if self._is_xlsx_path(join_path):
+            return self._read_xlsx_sample(join_path)
+        return self._read_csv_sample(join_path, codec)
+
+    @staticmethod
+    def _is_xlsx_path(path):
+        """Return True if path points to an Excel workbook (.xlsx only — legacy .xls
+        needs an optional GDAL driver not guaranteed present)."""
+        return path.lower().endswith(".xlsx")
+
+    @classmethod
+    def _read_xlsx_table(cls, xlsx_path, row_limit=None):
+        """Read the first sheet of an .xlsx using only the Python standard library.
+
+        Returns (headers, rows) where rows is a list of {header: str_value} dicts,
+        or (None, None) on failure.
+        """
+        try:
+            with zipfile.ZipFile(xlsx_path) as zf:
+                sheet_path = cls._first_xlsx_sheet_path(zf)
+                if sheet_path is None:
+                    return None, None
+                shared_strings = cls._read_xlsx_shared_strings(zf)
+                with zf.open(sheet_path) as sheet_file:
+                    root = ET.parse(sheet_file).getroot()
+        except Exception:
+            return None, None
+
+        ns = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+        sheet_data = root.find("{}sheetData".format(ns))
+        if sheet_data is None:
+            return None, None
+
+        table_rows = []
+        for row_el in sheet_data.findall("{}row".format(ns)):
+            values = {}
+            for cell in row_el.findall("{}c".format(ns)):
+                ref = cell.get("r", "")
+                col_idx = cls._xlsx_column_index(ref)
+                if col_idx is None:
                     continue
-                join_path = self._extract_join_source_path(join_layer.source())
-                if join_path:
-                    return self._read_csv_sample(join_path, codec)
-        return None
+                values[col_idx] = cls._xlsx_cell_text(cell, shared_strings)
+            table_rows.append(values)
+            if row_limit is not None and len(table_rows) > row_limit:
+                break
+
+        if not table_rows:
+            return [], []
+
+        max_col = max((max(row.keys()) for row in table_rows if row), default=-1)
+        raw_headers = table_rows[0]
+        headers = []
+        seen = set()
+        for idx in range(max_col + 1):
+            header = raw_headers.get(idx, "").strip() or "field_{}".format(idx + 1)
+            base = header
+            suffix = 2
+            while header in seen:
+                header = "{}_{}".format(base, suffix)
+                suffix += 1
+            seen.add(header)
+            headers.append(header)
+
+        rows = []
+        for raw_row in table_rows[1:]:
+            row = {}
+            for idx, header in enumerate(headers):
+                row[header] = raw_row.get(idx, "").strip()
+            rows.append(row)
+            if row_limit is not None and len(rows) >= row_limit:
+                break
+        return headers, rows
+
+    @staticmethod
+    def _first_xlsx_sheet_path(zf):
+        """Return the ZIP path for the first worksheet in workbook order."""
+        ns = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+        rel_ns = "{http://schemas.openxmlformats.org/package/2006/relationships}"
+        office_rel_ns = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+        try:
+            workbook = ET.parse(zf.open("xl/workbook.xml")).getroot()
+            rels = ET.parse(zf.open("xl/_rels/workbook.xml.rels")).getroot()
+            rel_by_id = {
+                rel.get("Id"): rel.get("Target")
+                for rel in rels.findall("{}Relationship".format(rel_ns))
+            }
+            sheets = workbook.find("{}sheets".format(ns))
+            if sheets is not None:
+                first_sheet = sheets.find("{}sheet".format(ns))
+                if first_sheet is not None:
+                    rel_id = first_sheet.get("{}id".format(office_rel_ns))
+                    target = rel_by_id.get(rel_id)
+                    if target:
+                        target = target.lstrip("/")
+                        return target if target.startswith("xl/") else "xl/{}".format(target)
+        except Exception:
+            pass
+        return "xl/worksheets/sheet1.xml" if "xl/worksheets/sheet1.xml" in zf.namelist() else None
+
+    @staticmethod
+    def _read_xlsx_shared_strings(zf):
+        """Return shared-string table for an .xlsx workbook."""
+        try:
+            root = ET.parse(zf.open("xl/sharedStrings.xml")).getroot()
+        except Exception:
+            return []
+        ns = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+        strings = []
+        for item in root.findall("{}si".format(ns)):
+            strings.append("".join(t.text or "" for t in item.iter("{}t".format(ns))))
+        return strings
+
+    @staticmethod
+    def _xlsx_column_index(cell_ref):
+        """Convert an Excel cell reference like C12 to a zero-based column index."""
+        letters = []
+        for ch in cell_ref:
+            if ch.isalpha():
+                letters.append(ch.upper())
+            else:
+                break
+        if not letters:
+            return None
+        value = 0
+        for ch in letters:
+            value = value * 26 + (ord(ch) - ord("A") + 1)
+        return value - 1
+
+    @classmethod
+    def _xlsx_cell_text(cls, cell, shared_strings):
+        """Return a cell value as text, resolving shared and inline strings."""
+        ns = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+        cell_type = cell.get("t", "")
+        if cell_type == "inlineStr":
+            inline = cell.find("{}is".format(ns))
+            if inline is None:
+                return ""
+            return "".join(t.text or "" for t in inline.iter("{}t".format(ns)))
+        value_el = cell.find("{}v".format(ns))
+        if value_el is None or value_el.text is None:
+            return ""
+        value = value_el.text
+        if cell_type == "s":
+            try:
+                return shared_strings[int(value)]
+            except (ValueError, IndexError):
+                return ""
+        if cell_type == "b":
+            return "TRUE" if value == "1" else "FALSE"
+        return value
+
+    @classmethod
+    def _read_xlsx_headers(cls, xlsx_path):
+        """Read only the first row of an .xlsx sheet."""
+        headers, rows = cls._read_xlsx_table(xlsx_path, row_limit=1)
+        if headers is None:
+            return []
+        return headers
+
+    @classmethod
+    def _read_xlsx_sample(cls, xlsx_path):
+        """Return up to 3 non-ASCII string values, [] if all-ASCII, None if no data.
+
+        Mirrors _read_csv_sample's contract so callers don't need to branch further.
+        """
+        headers, rows = cls._read_xlsx_table(xlsx_path, row_limit=6)
+        if headers is None:
+            return None
+        values = []
+        seen = set()
+        has_any_string = False
+        for h in headers:
+            h = (h or "").strip()
+            if not h:
+                continue
+            has_any_string = True
+            if cls._is_ascii_only(h) or h in seen:
+                continue
+            seen.add(h)
+            values.append(h)
+            if len(values) >= 3:
+                return values
+        for row in rows[:5]:
+            for val in row.values():
+                val = (val or "").strip()
+                if not val:
+                    continue
+                has_any_string = True
+                if cls._is_ascii_only(val) or val in seen:
+                    continue
+                seen.add(val)
+                values.append(val)
+                if len(values) >= 3:
+                    return values
+        if values:
+            return values
+        return [] if has_any_string else None
+
+    @classmethod
+    def _read_xlsx_full(cls, xlsx_path, key_field):
+        """Read an entire .xlsx sheet into a lookup dict keyed by key_field values.
+
+        Mirrors _read_csv_full's (csv_dict, extra_field_names) contract so downstream
+        merge logic (_merge_csv_to_layer) needs no format-specific branching.
+        """
+        headers, rows = cls._read_xlsx_table(xlsx_path)
+        if headers is None:
+            return None, None
+        table = {}
+        for row in rows:
+            key = str(row.get(key_field, "") or "").strip()
+            table[key] = dict(row)
+        seen = {key_field}
+        extra_fields = []
+        for h in headers:
+            if h not in seen:
+                seen.add(h)
+                extra_fields.append(h)
+        return table, extra_fields
 
     @classmethod
     def _read_csv_sample(cls, csv_path, codec):
@@ -827,34 +1572,65 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
     # ── Layer encoding preview ─────────────────────────────────────────
 
     def _update_enc_preview(self):
-        """Update lbl_enc_preview with sample attribute values."""
+        """Synchronous convenience wrapper: fetch then apply (used by the encoding combo signal)."""
         codec = self._get_encoding_codec()
-        values = self._get_preview_values(codec)
+        if self.rb_shp.isChecked():
+            values = self._get_preview_values(codec, shp_path=self.le_shp_path.text().strip())
+        else:
+            layer = (
+                self._get_selected_layer() if self.rb_layer.isChecked()
+                else self._get_selected_layer_csv()
+            )
+            values = self._get_preview_values(codec, layer=layer)
+        self._apply_enc_preview_values(values)
+
+    def _apply_enc_preview_values(self, values):
+        """Populate cb_enc_preview_target from already-fetched values (widget mutation only)."""
+        self.cb_enc_preview_target.blockSignals(True)
+        self.cb_enc_preview_target.clear()
         if values:
+            for i, v in enumerate(values, start=1):
+                self.cb_enc_preview_target.addItem(self._preview_combo_label(i), v)
+            self.cb_enc_preview_target.setEnabled(True)
+            self.cb_enc_preview_target.setCurrentIndex(0)
+        else:
+            self.cb_enc_preview_target.setEnabled(False)
+        self.cb_enc_preview_target.blockSignals(False)
+        self._refresh_enc_preview_label()
+
+    def _refresh_enc_preview_label(self, *_args):
+        """Show the value currently selected in cb_enc_preview_target."""
+        if self.cb_enc_preview_target.count() == 0:
             self.lbl_enc_preview.setText(
-                self.tr("Preview: {}").format("  /  ".join(values))
+                self.tr("Preview: {}").format(self.tr("No sample"))
             )
-        elif values is None:
+            self.lbl_enc_preview.setToolTip("")
+            return
+        full_text = self.cb_enc_preview_target.currentData()
+        if full_text is None:
             self.lbl_enc_preview.setText(
-                self.tr("Preview: (no sample available)")
+                self.tr("Preview: {}").format(self.cb_enc_preview_target.currentText())
             )
+            self.lbl_enc_preview.setToolTip("")
         else:
             self.lbl_enc_preview.setText(
-                self.tr("Preview: (ASCII only — encoding not critical)")
+                self.tr("Preview: {}").format(self._truncate_preview(full_text))
             )
+            self.lbl_enc_preview.setToolTip(full_text)
 
-    def _get_preview_values(self, codec):
-        """Return up to 3 non-ASCII string values, [] if all-ASCII, None if no data."""
-        if self.rb_shp.isChecked():
-            shp_path = self.le_shp_path.text().strip()
+    def _get_preview_values(self, codec, shp_path=None, layer=None):
+        """Return up to 3 non-ASCII string values, [] if all-ASCII, None if no data.
+
+        Exactly one of shp_path (direct Shapefile mode) or layer (QGIS Layer /
+        Layer+CSV mode) must be supplied by the caller — this function performs no
+        widget access, so it is safe to call from a background thread. layer.source()
+        (QGIS API, not a widget) is still read here, consistent with how _do_convert
+        already accesses layer objects from the conversion worker thread.
+        """
+        if shp_path is not None:
             if not shp_path or not os.path.isfile(shp_path):
                 return None
             return self._read_shp_sample(shp_path, codec)
-        layer = (
-            self._get_selected_layer()
-            if self.rb_layer.isChecked()
-            else self._get_selected_layer_csv()
-        )
         if layer is None or not isinstance(layer, QgsVectorLayer):
             return None
         # For SHP-backed layers, re-read raw file so encoding selection takes effect
@@ -1010,20 +1786,20 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
         for field in layer.fields():
             self.cb_layer_field.addItem(field.name())
 
-    def _populate_csv_fields(self, path):
-        """Populate CSV field combo by reading the header row (encoding-aware)."""
-        self.cb_csv_field.clear()
-        if not path or not os.path.isfile(path):
-            return
+    @staticmethod
+    def _read_csv_headers(path):
+        """Read just the CSV header row, trying utf-8-sig/cp932/utf-8. Returns [] on failure.
+
+        Pure/thread-safe — used by _scan_sources on the background thread; the actual
+        cb_csv_field combo is populated afterwards in _on_scan_finished.
+        """
         for enc in ("utf-8-sig", "cp932", "utf-8"):
             try:
                 with open(path, "r", encoding=enc, errors="strict") as f:
-                    headers = next(csv.reader(f), [])
-                for h in headers:
-                    self.cb_csv_field.addItem(h)
-                return
+                    return next(csv.reader(f), [])
             except (UnicodeDecodeError, StopIteration):
                 continue
+        return []
 
     # ── Output path selection ─────────────────────────────────────────
 
@@ -1058,12 +1834,12 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
             csv_path = self.le_csv_path.text().strip()
             if not csv_path:
                 QMessageBox.warning(
-                    self, self.tr("Validation Error"), self.tr("Please select a CSV file.")
+                    self, self.tr("Validation Error"), self.tr("Please select a join file.")
                 )
                 return False
             if not os.path.isfile(csv_path):
                 QMessageBox.warning(
-                    self, self.tr("Validation Error"), self.tr("Selected CSV file does not exist.")
+                    self, self.tr("Validation Error"), self.tr("Selected join file does not exist.")
                 )
                 return False
             if not self.cb_layer_field.currentText() or not self.cb_csv_field.currentText():
@@ -1091,6 +1867,42 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
                 return False
 
         return True
+
+    def _reset_source_selection(self):
+        """Clear source-data selections after a successful conversion."""
+        _debug_log("_reset_source_selection start")
+        combos = (
+            self.cb_layer,
+            self.cb_layer_csv,
+            self.cb_layer_field,
+            self.cb_csv_field,
+            self.cb_encoding,
+            self.cb_csv_encoding,
+        )
+        previous_blocks = [cb.blockSignals(True) for cb in combos]
+        try:
+            if self.cb_layer.count():
+                self.cb_layer.setCurrentIndex(0)
+            if self.cb_layer_csv.count():
+                self.cb_layer_csv.setCurrentIndex(0)
+            self.cb_layer_field.clear()
+            self.cb_csv_field.clear()
+            if self.cb_encoding.count():
+                self.cb_encoding.setCurrentIndex(0)
+            if self.cb_csv_encoding.count():
+                self.cb_csv_encoding.setCurrentIndex(0)
+        finally:
+            for cb, was_blocked in zip(combos, previous_blocks):
+                cb.blockSignals(was_blocked)
+
+        self.le_shp_path.clear()
+        self.le_csv_path.clear()
+        self._apply_enc_preview_values(None)
+        self._apply_csv_enc_preview_values(None)
+        self._update_layer_conversion_hint()
+        self._update_join_info()
+        self._update_csv_enc_visibility()
+        _debug_log("_reset_source_selection done")
 
     # ── Execute ───────────────────────────────────────────────────────
 
@@ -1131,9 +1943,95 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
                 ),
             )
 
+    def _background_messages(self, output_path):
+        """Return translated strings copied before the worker thread starts."""
+        return {
+            "complete": self.tr("Conversion complete: {}").format(output_path),
+            "write_error": self.tr("Write error (code {}): {}"),
+            "failed_open_shapefile": self.tr("Failed to open Shapefile."),
+            "failed_open_shapefile_source": self.tr("Failed to open Shapefile source."),
+            "failed_open_layer_source": self.tr("Failed to open layer source."),
+            "failed_read_join_file": self.tr("Failed to read join file."),
+        }
+
+    def _build_background_conversion_job(self, output_path):
+        """Build a thread-safe conversion job, or None when the path must stay main-threaded."""
+        messages = self._background_messages(output_path)
+        if self.rb_shp.isChecked():
+            shp_path = self.le_shp_path.text().strip()
+            return {
+                "kind": "shp",
+                "output_path": output_path,
+                "shp_path": shp_path,
+                "codec": self._get_encoding_codec() or "utf-8",
+                "layer_name": os.path.splitext(os.path.basename(shp_path))[0],
+                "joins": [],
+                "messages": messages,
+            }
+
+        if self.rb_layer.isChecked():
+            layer = self._get_selected_layer()
+            if layer is None:
+                return None
+            source_path = layer.source().split("|")[0].strip()
+            if not (source_path.lower().endswith(".shp") and os.path.isfile(source_path)):
+                return None
+            joins = []
+            for join_info in layer.vectorJoins():
+                join_layer = QgsProject.instance().mapLayer(join_info.joinLayerId())
+                if join_layer is None:
+                    continue
+                join_path = self._extract_join_source_path(join_layer.source())
+                if not join_path:
+                    continue
+                subset = join_info.joinFieldNamesSubset()
+                joins.append({
+                    "join_path": join_path,
+                    "join_field": join_info.joinFieldName(),
+                    "target_idx": layer.fields().indexFromName(join_info.targetFieldName()),
+                    "subset": list(subset) if subset else [],
+                    "csv_codec": self._get_csv_encoding_codec() or "utf-8",
+                })
+            return {
+                "kind": "shp",
+                "output_path": output_path,
+                "shp_path": source_path,
+                "codec": self._get_encoding_codec() or "utf-8",
+                "layer_name": layer.name(),
+                "joins": joins,
+                "messages": messages,
+            }
+
+        if self.rb_layer_csv.isChecked():
+            layer = self._get_selected_layer_csv()
+            if layer is None:
+                return None
+            source_path = layer.source().split("|")[0].strip()
+            if not (source_path.lower().endswith(".shp") and os.path.isfile(source_path)):
+                return None
+            return {
+                "kind": "shp",
+                "output_path": output_path,
+                "shp_path": source_path,
+                "codec": self._get_encoding_codec() or "utf-8",
+                "layer_name": layer.name(),
+                "joins": [{
+                    "join_path": self.le_csv_path.text().strip(),
+                    "join_field": self.cb_csv_field.currentText(),
+                    "target_idx": layer.fields().indexFromName(self.cb_layer_field.currentText()),
+                    "subset": [],
+                    "csv_codec": self._get_csv_encoding_codec() or "utf-8",
+                }],
+                "messages": messages,
+            }
+
+        return None
+
     def _on_execute_clicked(self):
         """Validate, confirm, convert, and load result into QGIS."""
+        _debug_log("_on_execute_clicked start")
         if not self._validate_inputs():
+            _debug_log("_on_execute_clicked validation failed")
             return
 
         output_path = self._select_output_file()
@@ -1141,6 +2039,7 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
             self.lbl_result_summary.setText(
                 self.tr("Result: Execution canceled (no output selected).")
             )
+            _debug_log("_on_execute_clicked canceled no output")
             return
 
         if self.rb_layer.isChecked():
@@ -1168,20 +2067,57 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
         self.progress_bar.setVisible(True)
         self.lbl_result_summary.setText(self.tr("Result: Converting..."))
 
-        # Run conversion on a background thread
-        self._thread = QThread()
-        self._worker = _ConversionWorker(self._do_convert, output_path)
+        background_job = self._build_background_conversion_job(output_path)
+        if background_job is not None:
+            self._start_background_conversion(background_job)
+            return
+
+        # Fallback path for non-SHP layer flattening. QgsVectorLayer/QgsProject/provider
+        # calls are kept on the main QGIS thread to avoid cross-thread crashes.
+        QtWidgets.QApplication.processEvents()
+        try:
+            ok, msg = self._do_convert(output_path)
+        except Exception as e:
+            ok, msg = False, str(e)
+            _debug_log("_on_execute_clicked exception={}".format(e))
+        self._on_conversion_done(ok, msg)
+
+    def _start_background_conversion(self, job):
+        """Run a conversion job whose inputs are plain paths/strings only."""
+        _debug_log("_start_background_conversion kind={}".format(job.get("kind")))
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self._thread = QThread(self)
+        self._worker = _ConversionWorker(self._do_convert_background, job)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
+        self._worker.progress.connect(self._on_conversion_progress)
         self._worker.finished.connect(self._on_conversion_done)
         self._worker.finished.connect(self._thread.quit)
         self._worker.finished.connect(self._worker.deleteLater)
         self._thread.finished.connect(self._thread.deleteLater)
+        self._thread.finished.connect(self._on_conversion_thread_finished)
         self._thread.start()
+
+    def _on_conversion_progress(self, value):
+        """Update C-group conversion progress from the background worker."""
+        try:
+            self.progress_bar.setValue(max(0, min(100, int(value))))
+        except RuntimeError:
+            pass
+
+    def _on_conversion_thread_finished(self):
+        """Release background conversion references after QThread cleanup."""
+        _debug_log("_on_conversion_thread_finished")
+        self._thread = None
+        self._worker = None
 
     def _on_conversion_done(self, ok, msg):
         """Called on the main thread when the background conversion finishes."""
+        _debug_log("_on_conversion_done ok={} msg={}".format(ok, msg))
         self.progress_bar.setVisible(False)
+        self.progress_bar.setRange(0, 0)
+        self.progress_bar.setValue(0)
         self.btn_execute.setVisible(True)
         self.lbl_result_summary.setText(self.tr("Result: {}").format(msg))
         output_path = self._pending_output_path
@@ -1198,6 +2134,7 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
             )
             if result_layer.isValid():
                 QgsProject.instance().addMapLayer(result_layer)
+            self._reset_source_selection()
             QMessageBox.information(self, self.tr("Success"), msg)
         else:
             QMessageBox.critical(self, self.tr("Error"), msg)
@@ -1206,11 +2143,215 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
 
     def _do_convert(self, output_path):
         """Dispatch to the appropriate conversion method. Returns (ok, message)."""
+        _debug_log("_do_convert start output_path={}".format(output_path))
         if self.rb_shp.isChecked():
+            _debug_log("_do_convert branch=shp")
             return self._convert_shp(output_path)
         if self.rb_layer_csv.isChecked():
+            _debug_log("_do_convert branch=layer_csv")
             return self._convert_layer_csv(output_path)
+        _debug_log("_do_convert branch=layer")
         return self._convert_layer(output_path)
+
+    @classmethod
+    def _do_convert_background(cls, job, progress_cb=None):
+        """Worker-thread conversion entry point. Uses no QGIS project/layer/widget objects."""
+        if progress_cb:
+            progress_cb(0)
+        if job.get("kind") == "shp":
+            return cls._write_shp_job_to_gpkg(job, progress_cb)
+        return False, "Unsupported background conversion job."
+
+    @classmethod
+    def _load_background_join(cls, join, messages):
+        """Read a CSV/XLSX join source inside the worker thread."""
+        join_path = join.get("join_path", "")
+        join_field = join.get("join_field", "")
+        if cls._is_xlsx_path(join_path):
+            csv_dict, all_extra_fields = cls._read_xlsx_full(join_path, join_field)
+        else:
+            csv_dict, all_extra_fields = cls._read_csv_full(
+                join_path, join.get("csv_codec") or "utf-8", join_field
+            )
+        if csv_dict is None:
+            return None, None, messages["failed_read_join_file"]
+
+        subset = set(join.get("subset") or [])
+        if subset:
+            extra_fields = [f for f in all_extra_fields if f in subset]
+        else:
+            extra_fields = all_extra_fields
+        return csv_dict, extra_fields, None
+
+    @staticmethod
+    def _background_join_key(value):
+        """Normalize join keys the same way as the in-memory merge path."""
+        if value is None:
+            return ""
+        if isinstance(value, float) and value == int(value):
+            return str(int(value))
+        return str(value).strip()
+
+    @staticmethod
+    def _set_ogr_field(feature, index, value):
+        """Set an OGR field, leaving None values as NULL."""
+        if value is None:
+            return
+        feature.SetField(index, value)
+
+    @staticmethod
+    def _create_ogr_field(ogr, layer, spec):
+        """Create one OGR field from a copied plain field spec."""
+        ftype = spec.get("ftype")
+        flen = spec.get("flen") or 0
+        dec_count = spec.get("dec_count") or 0
+        if ftype in ("N", "F"):
+            field_type = ogr.OFTReal if dec_count > 0 else ogr.OFTInteger64
+        elif ftype == "L":
+            field_type = ogr.OFTInteger
+        else:
+            field_type = ogr.OFTString
+
+        field_defn = ogr.FieldDefn(spec["name"], field_type)
+        if ftype == "L" and hasattr(ogr, "OFSTBoolean"):
+            field_defn.SetSubType(ogr.OFSTBoolean)
+        if flen:
+            field_defn.SetWidth(flen)
+        if dec_count:
+            field_defn.SetPrecision(dec_count)
+        return layer.CreateField(field_defn)
+
+    @classmethod
+    def _write_shp_job_to_gpkg(cls, job, progress_cb=None):
+        """Write a SHP-based job to GPKG in a worker thread using GDAL/OGR only."""
+        messages = job["messages"]
+        shp_path = job["shp_path"]
+        output_path = job["output_path"]
+        fields, records = cls._read_dbf_full(
+            shp_path,
+            job.get("codec") or "utf-8",
+            progress_cb=progress_cb,
+            progress_start=1,
+            progress_end=35,
+        )
+        if progress_cb:
+            progress_cb(36)
+
+        try:
+            from osgeo import ogr
+        except Exception as e:
+            return False, messages["write_error"].format("GDAL", e)
+
+        src_ds = ogr.Open(shp_path)
+        if src_ds is None:
+            return False, messages["failed_open_shapefile"]
+        src_layer = src_ds.GetLayer(0)
+        if src_layer is None:
+            return False, messages["failed_open_shapefile_source"]
+
+        used_names = set()
+        output_fields = []
+        for name, ftype, flen, dec_count in fields:
+            output_fields.append({
+                "name": cls._safe_gpkg_name(name, used_names),
+                "ftype": ftype,
+                "flen": flen,
+                "dec_count": dec_count,
+            })
+
+        join_data = []
+        for join in job.get("joins") or []:
+            csv_dict, extra_fields, error = cls._load_background_join(join, messages)
+            if error:
+                return False, error
+            safe_names = []
+            for fname in extra_fields:
+                safe_name = cls._safe_gpkg_name(fname, used_names)
+                safe_names.append(safe_name)
+                output_fields.append({
+                    "name": safe_name,
+                    "ftype": "C",
+                    "flen": 0,
+                    "dec_count": 0,
+                })
+            join_data.append({
+                "target_idx": join.get("target_idx", -1),
+                "csv_dict": csv_dict,
+                "extra_fields": extra_fields,
+            })
+        if progress_cb:
+            progress_cb(42)
+
+        driver = ogr.GetDriverByName("GPKG")
+        if driver is None:
+            return False, messages["write_error"].format("GDAL", "GPKG driver is unavailable.")
+        if os.path.exists(output_path):
+            try:
+                driver.DeleteDataSource(output_path)
+            except Exception:
+                pass
+        out_ds = driver.CreateDataSource(output_path)
+        if out_ds is None:
+            return False, messages["write_error"].format("GDAL", "Failed to create output.")
+
+        out_layer = out_ds.CreateLayer(
+            job.get("layer_name") or "layer",
+            src_layer.GetSpatialRef(),
+            src_layer.GetGeomType(),
+        )
+        if out_layer is None:
+            return False, messages["write_error"].format("GDAL", "Failed to create layer.")
+
+        for spec in output_fields:
+            err = cls._create_ogr_field(ogr, out_layer, spec)
+            if err != 0:
+                return False, messages["write_error"].format(err, spec["name"])
+
+        out_defn = out_layer.GetLayerDefn()
+        feature_count = src_layer.GetFeatureCount()
+        if feature_count <= 0:
+            feature_count = len(records)
+        write_start = 43
+        write_end = 96
+        last_progress = write_start - 1
+        for i, src_feat in enumerate(src_layer):
+            out_feat = ogr.Feature(out_defn)
+            geom = src_feat.GetGeometryRef()
+            if geom is not None:
+                out_feat.SetGeometry(geom.Clone())
+
+            attrs = list(records[i]) if i < len(records) else []
+            field_index = 0
+            for value in attrs:
+                cls._set_ogr_field(out_feat, field_index, value)
+                field_index += 1
+
+            for join in join_data:
+                target_idx = join["target_idx"]
+                raw_key = attrs[target_idx] if 0 <= target_idx < len(attrs) else None
+                row = join["csv_dict"].get(cls._background_join_key(raw_key), {})
+                for fname in join["extra_fields"]:
+                    cls._set_ogr_field(out_feat, field_index, row.get(fname))
+                    field_index += 1
+
+            err = out_layer.CreateFeature(out_feat)
+            out_feat = None
+            if err != 0:
+                return False, messages["write_error"].format(err, "Failed to create feature.")
+            if progress_cb and feature_count:
+                current = write_start + int(((i + 1) / feature_count) * (write_end - write_start))
+                if current > last_progress:
+                    progress_cb(current)
+                    last_progress = current
+
+        if progress_cb:
+            progress_cb(98)
+        out_layer.SyncToDisk()
+        out_ds = None
+        src_ds = None
+        if progress_cb:
+            progress_cb(100)
+        return True, messages["complete"]
 
     def _convert_shp(self, output_path):
         """Convert SHP directly to GPKG using the selected layer encoding."""
@@ -1261,9 +2402,14 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
                 # If this list is empty, it means all fields are joined.
                 join_fields_subset = join_info.joinFieldNamesSubset()
 
-                csv_dict, all_csv_extra_fields = self._read_csv_full(
-                    join_path, csv_codec or "utf-8", join_info.joinFieldName()
-                )
+                if self._is_xlsx_path(join_path):
+                    csv_dict, all_csv_extra_fields = self._read_xlsx_full(
+                        join_path, join_info.joinFieldName()
+                    )
+                else:
+                    csv_dict, all_csv_extra_fields = self._read_csv_full(
+                        join_path, csv_codec or "utf-8", join_info.joinFieldName()
+                    )
 
                 # Filter the fields to be merged based on the join subset.
                 # joinFieldNamesSubset() returns the original CSV column names (no prefix).
@@ -1299,9 +2445,12 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
         # Field index is reliable even when the field name is garbled in QGIS
         layer_field_idx = layer.fields().indexFromName(layer_field_name)
 
-        csv_dict, csv_extra_fields = self._read_csv_full(csv_path, csv_codec, csv_field_name)
+        if self._is_xlsx_path(csv_path):
+            csv_dict, csv_extra_fields = self._read_xlsx_full(csv_path, csv_field_name)
+        else:
+            csv_dict, csv_extra_fields = self._read_csv_full(csv_path, csv_codec, csv_field_name)
         if csv_dict is None:
-            return False, self.tr("Failed to read CSV file.")
+            return False, self.tr("Failed to read join file.")
 
         source_path = layer.source().split("|")[0].strip()
         if source_path.lower().endswith(".shp") and os.path.isfile(source_path):
@@ -1318,7 +2467,7 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
 
         merged = self._merge_csv_to_layer(base_mem, csv_dict, csv_extra_fields, layer_field_idx)
         if merged is None:
-            return False, self.tr("Failed to merge CSV data.")
+            return False, self.tr("Failed to merge join data.")
         return self._write_to_gpkg(merged, output_path, layer.name())
 
     # ── Conversion helpers ────────────────────────────────────────────
@@ -1349,7 +2498,7 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
         return base if os.path.isfile(base) else None
 
     @classmethod
-    def _read_dbf_full(cls, shp_path, codec):
+    def _read_dbf_full(cls, shp_path, codec, progress_cb=None, progress_start=0, progress_end=100):
         """Read entire DBF with the given codec.
 
         Returns (fields, records) where:
@@ -1368,6 +2517,8 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
                 header_size = int.from_bytes(hdr[8:10], "little")
                 record_size = int.from_bytes(hdr[10:12], "little")
                 n_fields = (header_size - 33) // 32
+                if progress_cb:
+                    progress_cb(progress_start)
 
                 enc = codec or "utf-8"
                 fields = []
@@ -1392,7 +2543,8 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
 
                 records = []
                 f.seek(header_size)
-                for _ in range(record_count):
+                last_progress = progress_start
+                for rec_index in range(record_count):
                     record = f.read(record_size)
                     if len(record) < record_size:
                         break
@@ -1420,6 +2572,13 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
                             )
                         row.append(val)
                     records.append(row)
+                    if progress_cb and record_count:
+                        current = progress_start + int(
+                            ((rec_index + 1) / record_count) * (progress_end - progress_start)
+                        )
+                        if current > last_progress:
+                            progress_cb(current)
+                            last_progress = current
             return fields, records
         except Exception:
             return [], []
@@ -1476,13 +2635,13 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
             safe = cls._safe_gpkg_name(name, used_names)
             if ftype in ("N", "F"):
                 if dec_count > 0:
-                    qgs_fields.append(QgsField(safe, QVariant.Double, '', flen, dec_count))
+                    qgs_fields.append(QgsField(safe, QMetaType.Type.Double, '', flen, dec_count))
                 else:
-                    qgs_fields.append(QgsField(safe, QVariant.LongLong))
+                    qgs_fields.append(QgsField(safe, QMetaType.Type.LongLong))
             elif ftype == "L":
-                qgs_fields.append(QgsField(safe, QVariant.Bool))
+                qgs_fields.append(QgsField(safe, QMetaType.Type.Bool))
             else:
-                qgs_fields.append(QgsField(safe, QVariant.String, '', flen))
+                qgs_fields.append(QgsField(safe, QMetaType.Type.QString, '', flen))
 
         pr = mem.dataProvider()
         pr.addAttributes(qgs_fields)
@@ -1575,7 +2734,7 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
 
         new_attrs = list(base_layer.fields())
         for safe_name in safe_csv_names:
-            new_attrs.append(QgsField(safe_name, QVariant.String))
+            new_attrs.append(QgsField(safe_name, QMetaType.Type.QString))
         pr.addAttributes(new_attrs)
         mem.updateFields()
 
@@ -1612,12 +2771,12 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
         options.driverName = "GPKG"
         options.fileEncoding = "UTF-8"
         options.layerName = layer_name or "layer"
-        options.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteFile
+        options.actionOnExistingFile = QgsVectorFileWriter.ActionOnExistingFile.CreateOrOverwriteFile
 
         result, msg, _, _ = QgsVectorFileWriter.writeAsVectorFormatV3(
             layer, output_path, QgsCoordinateTransformContext(), options
         )
-        if result == QgsVectorFileWriter.NoError:
+        if result == QgsVectorFileWriter.WriterError.NoError:
             return True, QCoreApplication.translate(
                 "MultiEncodeVectorConverterDockWidget",
                 "Conversion complete: {}"
@@ -1630,5 +2789,6 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDockWidget):
     # ── Utility ───────────────────────────────────────────────────────
 
     def closeEvent(self, event):
+        _debug_log("dockwidget closeEvent")
         self.closingPlugin.emit()
         event.accept()

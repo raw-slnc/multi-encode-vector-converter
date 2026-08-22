@@ -377,5 +377,275 @@ A conversão prosseguirá, mas a camada de saída pode não ser exibida corretam
 
 Após a conversão, clique com o botão direito na camada de saída → &quot;Definir CRS da camada&quot; e selecione o CRS correto manualmente.</translation>
     </message>
+    <message>
+        <source>Detection: Shapefile selected.</source>
+        <translation>Detecção: Shapefile selecionado.</translation>
+    </message>
+    <message>
+        <source>Action: Decode attributes with the selected layer encoding and write GPKG.</source>
+        <translation>Ação: Decodificar os atributos com a codificação de camada selecionada e gravar GPKG.</translation>
+    </message>
+    <message>
+        <source>Report: No QGIS layer joins are used in direct Shapefile mode.</source>
+        <translation>Relatório: No modo Shapefile direto, junções de camadas QGIS não são usadas.</translation>
+    </message>
+    <message>
+        <source>Detection: Shapefile not selected.</source>
+        <translation>Detecção: Shapefile não selecionado.</translation>
+    </message>
+    <message>
+        <source>Action: Select a .shp file.</source>
+        <translation>Ação: Selecione um arquivo .shp.</translation>
+    </message>
+    <message>
+        <source>Report: Waiting for input.</source>
+        <translation>Relatório: Aguardando entrada.</translation>
+    </message>
+    <message>
+        <source>Detection: QGIS layer not selected.</source>
+        <translation>Detecção: Camada QGIS não selecionada.</translation>
+    </message>
+    <message>
+        <source>Action: Select a QGIS layer.</source>
+        <translation>Ação: Selecione uma camada QGIS.</translation>
+    </message>
+    <message>
+        <source>Report: Join file selected; layer and join keys are still required.</source>
+        <translation>Relatório: Arquivo de junção selecionado; a camada e as chaves de junção ainda são necessárias.</translation>
+    </message>
+    <message>
+        <source>GPKG</source>
+        <translation>GPKG</translation>
+    </message>
+    <message>
+        <source>not GPKG</source>
+        <translation>não é GPKG</translation>
+    </message>
+    <message>
+        <source>Excel</source>
+        <translation>Excel</translation>
+    </message>
+    <message>
+        <source>{} join file selected</source>
+        <translation>arquivo de junção {} selecionado</translation>
+    </message>
+    <message>
+        <source>join file not selected</source>
+        <translation>arquivo de junção não selecionado</translation>
+    </message>
+    <message>
+        <source>Detection: Source is {source}; {join}.</source>
+        <translation>Detecção: A origem é {source}; {join}.</translation>
+    </message>
+    <message>
+        <source>Action: Convert the layer to GPKG and merge the external join file.</source>
+        <translation>Ação: Converter a camada para GPKG e mesclar o arquivo de junção externo.</translation>
+    </message>
+    <message>
+        <source>Report: Join key fields must match before execution.</source>
+        <translation>Relatório: Os campos chave de junção devem corresponder antes da execução.</translation>
+    </message>
+    <message>
+        <source>{} existing join(s) detected</source>
+        <translation>{} junção(ões) existente(s) detectada(s)</translation>
+    </message>
+    <message>
+        <source>no existing joins detected</source>
+        <translation>nenhuma junção existente detectada</translation>
+    </message>
+    <message>
+        <source>Action: Reproduce existing joins into an output GPKG.</source>
+        <translation>Ação: Reproduzir as junções existentes em um GPKG de saída.</translation>
+    </message>
+    <message>
+        <source>Report: Join layer(s): {}.</source>
+        <translation>Relatório: Camada(s) de junção: {}.</translation>
+    </message>
+    <message>
+        <source>Action: Convert to GPKG and reproduce existing joins.</source>
+        <translation>Ação: Converter para GPKG e reproduzir as junções existentes.</translation>
+    </message>
+    <message>
+        <source>Action: No conversion is required unless encoding normalization is needed.</source>
+        <translation>Ação: Nenhuma conversão é necessária, a menos que a normalização de codificação seja necessária.</translation>
+    </message>
+    <message>
+        <source>Report: No joins to reproduce.</source>
+        <translation>Relatório: Não há junções para reproduzir.</translation>
+    </message>
+    <message>
+        <source>Action: Convert to recommended GPKG.</source>
+        <translation>Ação: Converter para o GPKG recomendado.</translation>
+    </message>
+    <message>
+        <source>Language:</source>
+        <translation>Idioma:</translation>
+    </message>
+    <message>
+        <source>Conversion Steps</source>
+        <translation>Etapas de Conversão</translation>
+    </message>
+    <message>
+        <source>QGIS Layer + Join File</source>
+        <translation>Camada QGIS + Arquivo de Junção</translation>
+    </message>
+    <message>
+        <source>Join File</source>
+        <translation>Arquivo de Junção</translation>
+    </message>
+    <message>
+        <source>Select a CSV or Excel file</source>
+        <translation>Selecionar um arquivo CSV ou Excel</translation>
+    </message>
+    <message>
+        <source>Join File Encoding</source>
+        <translation>Codificação do Arquivo de Junção</translation>
+    </message>
+    <message>
+        <source>Preview: (no join file)</source>
+        <translation>Visualização: (sem arquivo de junção)</translation>
+    </message>
+    <message>
+        <source>Select a layer and specify a join file (CSV or Excel). Join key fields must be set.</source>
+        <translation>Selecione uma camada e especifique um arquivo de junção (CSV ou Excel). Os campos chave de junção devem ser definidos.</translation>
+    </message>
+    <message>
+        <source>Select Join File</source>
+        <translation>Selecionar Arquivo de Junção</translation>
+    </message>
+    <message>
+        <source>CSV/Excel (*.csv *.xlsx);;CSV (*.csv);;Excel (*.xlsx)</source>
+        <translation>CSV/Excel (*.csv *.xlsx);;CSV (*.csv);;Excel (*.xlsx)</translation>
+    </message>
+    <message>
+        <source>Excel files are always UTF-8 — encoding selection is not needed.</source>
+        <translation>Arquivos Excel são sempre tratados como UTF-8; a seleção de codificação não é necessária.</translation>
+    </message>
+    <message>
+        <source>(no sample available)</source>
+        <translation>(nenhuma amostra disponível)</translation>
+    </message>
+    <message>
+        <source>(ASCII only — encoding not critical)</source>
+        <translation>(somente ASCII; a codificação não é crítica)</translation>
+    </message>
+    <message>
+        <source>Please select a join file.</source>
+        <translation>Selecione um arquivo de junção.</translation>
+    </message>
+    <message>
+        <source>Selected join file does not exist.</source>
+        <translation>O arquivo de junção selecionado não existe.</translation>
+    </message>
+    <message>
+        <source>Failed to read join file.</source>
+        <translation>Falha ao ler o arquivo de junção.</translation>
+    </message>
+    <message>
+        <source>Shapefile selected.</source>
+        <translation>Shapefile selecionado.</translation>
+    </message>
+    <message>
+        <source>Decode attributes with the selected layer encoding and write GPKG.</source>
+        <translation>Decodificar os atributos com a codificação de camada selecionada e gravar GPKG.</translation>
+    </message>
+    <message>
+        <source>No QGIS layer joins are used in direct Shapefile mode.</source>
+        <translation>No modo Shapefile direto, junções de camadas QGIS não são usadas.</translation>
+    </message>
+    <message>
+        <source>Shapefile not selected.</source>
+        <translation>Shapefile não selecionado.</translation>
+    </message>
+    <message>
+        <source>Select a .shp file.</source>
+        <translation>Selecione um arquivo .shp.</translation>
+    </message>
+    <message>
+        <source>Waiting for input.</source>
+        <translation>Aguardando entrada.</translation>
+    </message>
+    <message>
+        <source>QGIS layer not selected.</source>
+        <translation>Camada QGIS não selecionada.</translation>
+    </message>
+    <message>
+        <source>Select a QGIS layer.</source>
+        <translation>Selecione uma camada QGIS.</translation>
+    </message>
+    <message>
+        <source>Join file selected; layer and join keys are still required.</source>
+        <translation>Arquivo de junção selecionado; a camada e as chaves de junção ainda são necessárias.</translation>
+    </message>
+    <message>
+        <source>Source is {source}; {join}.</source>
+        <translation>A origem é {source}; {join}.</translation>
+    </message>
+    <message>
+        <source>Convert the layer to GPKG and merge the external join file.</source>
+        <translation>Converter a camada para GPKG e mesclar o arquivo de junção externo.</translation>
+    </message>
+    <message>
+        <source>Join key fields must match before execution.</source>
+        <translation>Os campos chave de junção devem corresponder antes da execução.</translation>
+    </message>
+    <message>
+        <source>Reproduce existing joins into an output GPKG.</source>
+        <translation>Reproduzir as junções existentes em um GPKG de saída.</translation>
+    </message>
+    <message>
+        <source>Join layer(s): {}.</source>
+        <translation>Camada(s) de junção: {}.</translation>
+    </message>
+    <message>
+        <source>Convert to GPKG and reproduce existing joins.</source>
+        <translation>Converter para GPKG e reproduzir as junções existentes.</translation>
+    </message>
+    <message>
+        <source>No conversion is required unless encoding normalization is needed.</source>
+        <translation>Nenhuma conversão é necessária, a menos que a normalização de codificação seja necessária.</translation>
+    </message>
+    <message>
+        <source>No joins to reproduce.</source>
+        <translation>Não há junções para reproduzir.</translation>
+    </message>
+    <message>
+        <source>Convert to recommended GPKG.</source>
+        <translation>Converter para o GPKG recomendado.</translation>
+    </message>
+    <message>
+        <source>Select a loaded QGIS layer.
+Existing joins will be detected automatically.</source>
+        <translation>Selecione uma camada QGIS carregada.
+As junções existentes serão detectadas automaticamente.</translation>
+    </message>
+    <message>
+        <source>Select a layer and specify a join file (CSV or Excel).
+Join key fields must be set.</source>
+        <translation>Selecione uma camada e especifique um arquivo de junção (CSV ou Excel).
+Os campos chave de junção devem ser definidos.</translation>
+    </message>
+    <message>
+        <source>Select a Shapefile to import directly.
+Load into QGIS first if you also need a CSV join.</source>
+        <translation>Selecione um Shapefile para importar diretamente.
+Carregue-o primeiro no QGIS se também precisar de uma junção CSV.</translation>
+    </message>
+    <message>
+        <source>(No sample)</source>
+        <translation>(Sem amostra)</translation>
+    </message>
+    <message>
+        <source>(Sample: {})</source>
+        <translation>(Amostra: {})</translation>
+    </message>
+    <message>
+        <source>Sample: {}</source>
+        <translation>Amostra: {}</translation>
+    </message>
+    <message>
+        <source>No sample</source>
+        <translation>Sem amostra</translation>
+    </message>
 </context>
 </TS>

@@ -376,5 +376,275 @@ After conversion, right-click the output layer → &quot;Set Layer CRS&quot; and
 
 変換後、出力レイヤーを右クリック →「レイヤーの CRS を設定」から正しい CRS を手動で設定してください。</translation>
     </message>
+    <message>
+        <source>Detection: Shapefile selected.</source>
+        <translation>検出状況: シェープファイルが選択されています。</translation>
+    </message>
+    <message>
+        <source>Action: Decode attributes with the selected layer encoding and write GPKG.</source>
+        <translation>実行内容: 選択したレイヤ文字コードで属性を復号し、GPKGへ書き出します。</translation>
+    </message>
+    <message>
+        <source>Report: No QGIS layer joins are used in direct Shapefile mode.</source>
+        <translation>報告: シェープファイル直接指定では、QGISレイヤの結合は使用しません。</translation>
+    </message>
+    <message>
+        <source>Detection: Shapefile not selected.</source>
+        <translation>検出状況: シェープファイルが未選択です。</translation>
+    </message>
+    <message>
+        <source>Action: Select a .shp file.</source>
+        <translation>実行内容: .shp ファイルを選択してください。</translation>
+    </message>
+    <message>
+        <source>Report: Waiting for input.</source>
+        <translation>報告: 入力待ちです。</translation>
+    </message>
+    <message>
+        <source>Detection: QGIS layer not selected.</source>
+        <translation>検出状況: QGISレイヤが未選択です。</translation>
+    </message>
+    <message>
+        <source>Action: Select a QGIS layer.</source>
+        <translation>実行内容: QGISレイヤを選択してください。</translation>
+    </message>
+    <message>
+        <source>Report: Join file selected; layer and join keys are still required.</source>
+        <translation>報告: 結合ファイルは選択済みです。レイヤと結合キーの指定が必要です。</translation>
+    </message>
+    <message>
+        <source>GPKG</source>
+        <translation>GPKG</translation>
+    </message>
+    <message>
+        <source>not GPKG</source>
+        <translation>GPKGではありません</translation>
+    </message>
+    <message>
+        <source>Excel</source>
+        <translation>Excel</translation>
+    </message>
+    <message>
+        <source>{} join file selected</source>
+        <translation>{}結合ファイルが選択されています</translation>
+    </message>
+    <message>
+        <source>join file not selected</source>
+        <translation>結合ファイルが未選択です</translation>
+    </message>
+    <message>
+        <source>Detection: Source is {source}; {join}.</source>
+        <translation>検出状況: ソースは {source}。{join}。</translation>
+    </message>
+    <message>
+        <source>Action: Convert the layer to GPKG and merge the external join file.</source>
+        <translation>実行内容: レイヤをGPKGへ変換し、外部結合ファイルをマージします。</translation>
+    </message>
+    <message>
+        <source>Report: Join key fields must match before execution.</source>
+        <translation>報告: 実行前に結合キーフィールドを対応させる必要があります。</translation>
+    </message>
+    <message>
+        <source>{} existing join(s) detected</source>
+        <translation>既存の結合を{}件検出しました</translation>
+    </message>
+    <message>
+        <source>no existing joins detected</source>
+        <translation>既存の結合は検出されませんでした</translation>
+    </message>
+    <message>
+        <source>Action: Reproduce existing joins into an output GPKG.</source>
+        <translation>実行内容: 既存の結合を出力GPKGへ再現します。</translation>
+    </message>
+    <message>
+        <source>Report: Join layer(s): {}.</source>
+        <translation>報告: 結合レイヤ: {}。</translation>
+    </message>
+    <message>
+        <source>Action: Convert to GPKG and reproduce existing joins.</source>
+        <translation>実行内容: GPKGへ変換し、既存の結合を再現します。</translation>
+    </message>
+    <message>
+        <source>Action: No conversion is required unless encoding normalization is needed.</source>
+        <translation>実行内容: 文字コードの正規化が不要であれば変換は必要ありません。</translation>
+    </message>
+    <message>
+        <source>Report: No joins to reproduce.</source>
+        <translation>報告: 再現する結合はありません。</translation>
+    </message>
+    <message>
+        <source>Action: Convert to recommended GPKG.</source>
+        <translation>実行内容: 推奨フォーマットのGPKGへ変換します。</translation>
+    </message>
+    <message>
+        <source>Language:</source>
+        <translation>言語:</translation>
+    </message>
+    <message>
+        <source>Conversion Steps</source>
+        <translation>変換ステップ</translation>
+    </message>
+    <message>
+        <source>QGIS Layer + Join File</source>
+        <translation>QGISレイヤ + 結合ファイル</translation>
+    </message>
+    <message>
+        <source>Join File</source>
+        <translation>結合ファイル</translation>
+    </message>
+    <message>
+        <source>Select a CSV or Excel file</source>
+        <translation>CSVまたはExcelファイルを選択</translation>
+    </message>
+    <message>
+        <source>Join File Encoding</source>
+        <translation>結合ファイルの文字コード</translation>
+    </message>
+    <message>
+        <source>Preview: (no join file)</source>
+        <translation>プレビュー: (結合ファイルなし)</translation>
+    </message>
+    <message>
+        <source>Select a layer and specify a join file (CSV or Excel). Join key fields must be set.</source>
+        <translation>レイヤを選択し、結合ファイル（CSVまたはExcel）を指定します。結合キーフィールドを設定してください。</translation>
+    </message>
+    <message>
+        <source>Select Join File</source>
+        <translation>結合ファイルを選択</translation>
+    </message>
+    <message>
+        <source>CSV/Excel (*.csv *.xlsx);;CSV (*.csv);;Excel (*.xlsx)</source>
+        <translation>CSV/Excel (*.csv *.xlsx);;CSV (*.csv);;Excel (*.xlsx)</translation>
+    </message>
+    <message>
+        <source>Excel files are always UTF-8 — encoding selection is not needed.</source>
+        <translation>Excelファイルは常にUTF-8として扱われるため、文字コードの選択は不要です。</translation>
+    </message>
+    <message>
+        <source>(no sample available)</source>
+        <translation>(サンプルなし)</translation>
+    </message>
+    <message>
+        <source>(ASCII only — encoding not critical)</source>
+        <translation>(ASCIIのみ - 文字コードの影響は限定的です)</translation>
+    </message>
+    <message>
+        <source>Please select a join file.</source>
+        <translation>結合ファイルを選択してください。</translation>
+    </message>
+    <message>
+        <source>Selected join file does not exist.</source>
+        <translation>選択された結合ファイルが存在しません。</translation>
+    </message>
+    <message>
+        <source>Failed to read join file.</source>
+        <translation>結合ファイルの読み込みに失敗しました。</translation>
+    </message>
+    <message>
+        <source>Shapefile selected.</source>
+        <translation>シェープファイルが選択されています。</translation>
+    </message>
+    <message>
+        <source>Decode attributes with the selected layer encoding and write GPKG.</source>
+        <translation>選択したレイヤ文字コードで属性を復号し、GPKGへ書き出します。</translation>
+    </message>
+    <message>
+        <source>No QGIS layer joins are used in direct Shapefile mode.</source>
+        <translation>シェープファイル直接指定では、QGISレイヤの結合は使用しません。</translation>
+    </message>
+    <message>
+        <source>Shapefile not selected.</source>
+        <translation>シェープファイルが未選択です。</translation>
+    </message>
+    <message>
+        <source>Select a .shp file.</source>
+        <translation>.shp ファイルを選択してください。</translation>
+    </message>
+    <message>
+        <source>Waiting for input.</source>
+        <translation>入力待ちです。</translation>
+    </message>
+    <message>
+        <source>QGIS layer not selected.</source>
+        <translation>QGISレイヤが未選択です。</translation>
+    </message>
+    <message>
+        <source>Select a QGIS layer.</source>
+        <translation>QGISレイヤを選択してください。</translation>
+    </message>
+    <message>
+        <source>Join file selected; layer and join keys are still required.</source>
+        <translation>結合ファイルは選択済みです。レイヤと結合キーの指定が必要です。</translation>
+    </message>
+    <message>
+        <source>Source is {source}; {join}.</source>
+        <translation>ソースは {source}。{join}。</translation>
+    </message>
+    <message>
+        <source>Convert the layer to GPKG and merge the external join file.</source>
+        <translation>レイヤをGPKGへ変換し、外部結合ファイルをマージします。</translation>
+    </message>
+    <message>
+        <source>Join key fields must match before execution.</source>
+        <translation>実行前に結合キーフィールドを対応させる必要があります。</translation>
+    </message>
+    <message>
+        <source>Reproduce existing joins into an output GPKG.</source>
+        <translation>既存の結合を出力GPKGへ再現します。</translation>
+    </message>
+    <message>
+        <source>Join layer(s): {}.</source>
+        <translation>結合レイヤ: {}。</translation>
+    </message>
+    <message>
+        <source>Convert to GPKG and reproduce existing joins.</source>
+        <translation>GPKGへ変換し、既存の結合を再現します。</translation>
+    </message>
+    <message>
+        <source>No conversion is required unless encoding normalization is needed.</source>
+        <translation>文字コードの正規化が不要であれば変換は必要ありません。</translation>
+    </message>
+    <message>
+        <source>No joins to reproduce.</source>
+        <translation>再現する結合はありません。</translation>
+    </message>
+    <message>
+        <source>Convert to recommended GPKG.</source>
+        <translation>推奨フォーマットのGPKGへ変換します。</translation>
+    </message>
+    <message>
+        <source>Select a loaded QGIS layer.
+Existing joins will be detected automatically.</source>
+        <translation>読み込み済みのQGISレイヤを選択します。
+既存の結合は自動的に検出されます。</translation>
+    </message>
+    <message>
+        <source>Select a layer and specify a join file (CSV or Excel).
+Join key fields must be set.</source>
+        <translation>レイヤを選択し、結合ファイル（CSVまたはExcel）を指定します。
+結合キーフィールドを設定してください。</translation>
+    </message>
+    <message>
+        <source>Select a Shapefile to import directly.
+Load into QGIS first if you also need a CSV join.</source>
+        <translation>直接インポートするシェープファイルを選択します。
+CSV結合も必要な場合は、先にQGISへ読み込んでください。</translation>
+    </message>
+    <message>
+        <source>(No sample)</source>
+        <translation>（サンプルなし）</translation>
+    </message>
+    <message>
+        <source>(Sample: {})</source>
+        <translation>（サンプル：{}）</translation>
+    </message>
+    <message>
+        <source>Sample: {}</source>
+        <translation>サンプル：{}</translation>
+    </message>
+    <message>
+        <source>No sample</source>
+        <translation>サンプルなし</translation>
+    </message>
 </context>
 </TS>

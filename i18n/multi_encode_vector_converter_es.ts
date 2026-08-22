@@ -377,5 +377,275 @@ La conversión continuará, pero la capa de salida puede no mostrarse correctame
 
 Tras la conversión, haga clic derecho en la capa de salida → &quot;Establecer CRS de la capa&quot; y seleccione el CRS correcto manualmente.</translation>
     </message>
+    <message>
+        <source>Detection: Shapefile selected.</source>
+        <translation>Detección: Shapefile seleccionado.</translation>
+    </message>
+    <message>
+        <source>Action: Decode attributes with the selected layer encoding and write GPKG.</source>
+        <translation>Acción: Decodificar los atributos con la codificación de capa seleccionada y escribir GPKG.</translation>
+    </message>
+    <message>
+        <source>Report: No QGIS layer joins are used in direct Shapefile mode.</source>
+        <translation>Informe: En el modo Shapefile directo no se usan uniones de capas QGIS.</translation>
+    </message>
+    <message>
+        <source>Detection: Shapefile not selected.</source>
+        <translation>Detección: Shapefile no seleccionado.</translation>
+    </message>
+    <message>
+        <source>Action: Select a .shp file.</source>
+        <translation>Acción: Seleccione un archivo .shp.</translation>
+    </message>
+    <message>
+        <source>Report: Waiting for input.</source>
+        <translation>Informe: Esperando entrada.</translation>
+    </message>
+    <message>
+        <source>Detection: QGIS layer not selected.</source>
+        <translation>Detección: Capa QGIS no seleccionada.</translation>
+    </message>
+    <message>
+        <source>Action: Select a QGIS layer.</source>
+        <translation>Acción: Seleccione una capa QGIS.</translation>
+    </message>
+    <message>
+        <source>Report: Join file selected; layer and join keys are still required.</source>
+        <translation>Informe: Archivo de unión seleccionado; aún se requieren la capa y las claves de unión.</translation>
+    </message>
+    <message>
+        <source>GPKG</source>
+        <translation>GPKG</translation>
+    </message>
+    <message>
+        <source>not GPKG</source>
+        <translation>no es GPKG</translation>
+    </message>
+    <message>
+        <source>Excel</source>
+        <translation>Excel</translation>
+    </message>
+    <message>
+        <source>{} join file selected</source>
+        <translation>archivo de unión {} seleccionado</translation>
+    </message>
+    <message>
+        <source>join file not selected</source>
+        <translation>archivo de unión no seleccionado</translation>
+    </message>
+    <message>
+        <source>Detection: Source is {source}; {join}.</source>
+        <translation>Detección: La fuente es {source}; {join}.</translation>
+    </message>
+    <message>
+        <source>Action: Convert the layer to GPKG and merge the external join file.</source>
+        <translation>Acción: Convertir la capa a GPKG y fusionar el archivo de unión externo.</translation>
+    </message>
+    <message>
+        <source>Report: Join key fields must match before execution.</source>
+        <translation>Informe: Los campos clave de unión deben coincidir antes de ejecutar.</translation>
+    </message>
+    <message>
+        <source>{} existing join(s) detected</source>
+        <translation>{} unión(es) existente(s) detectada(s)</translation>
+    </message>
+    <message>
+        <source>no existing joins detected</source>
+        <translation>no se detectaron uniones existentes</translation>
+    </message>
+    <message>
+        <source>Action: Reproduce existing joins into an output GPKG.</source>
+        <translation>Acción: Reproducir las uniones existentes en un GPKG de salida.</translation>
+    </message>
+    <message>
+        <source>Report: Join layer(s): {}.</source>
+        <translation>Informe: Capa(s) de unión: {}.</translation>
+    </message>
+    <message>
+        <source>Action: Convert to GPKG and reproduce existing joins.</source>
+        <translation>Acción: Convertir a GPKG y reproducir las uniones existentes.</translation>
+    </message>
+    <message>
+        <source>Action: No conversion is required unless encoding normalization is needed.</source>
+        <translation>Acción: No se requiere conversión salvo que se necesite normalización de codificación.</translation>
+    </message>
+    <message>
+        <source>Report: No joins to reproduce.</source>
+        <translation>Informe: No hay uniones para reproducir.</translation>
+    </message>
+    <message>
+        <source>Action: Convert to recommended GPKG.</source>
+        <translation>Acción: Convertir al GPKG recomendado.</translation>
+    </message>
+    <message>
+        <source>Language:</source>
+        <translation>Idioma:</translation>
+    </message>
+    <message>
+        <source>Conversion Steps</source>
+        <translation>Pasos de Conversión</translation>
+    </message>
+    <message>
+        <source>QGIS Layer + Join File</source>
+        <translation>Capa QGIS + Archivo de Unión</translation>
+    </message>
+    <message>
+        <source>Join File</source>
+        <translation>Archivo de Unión</translation>
+    </message>
+    <message>
+        <source>Select a CSV or Excel file</source>
+        <translation>Seleccionar un archivo CSV o Excel</translation>
+    </message>
+    <message>
+        <source>Join File Encoding</source>
+        <translation>Codificación del Archivo de Unión</translation>
+    </message>
+    <message>
+        <source>Preview: (no join file)</source>
+        <translation>Vista previa: (sin archivo de unión)</translation>
+    </message>
+    <message>
+        <source>Select a layer and specify a join file (CSV or Excel). Join key fields must be set.</source>
+        <translation>Seleccione una capa y especifique un archivo de unión (CSV o Excel). Los campos clave de unión deben configurarse.</translation>
+    </message>
+    <message>
+        <source>Select Join File</source>
+        <translation>Seleccionar Archivo de Unión</translation>
+    </message>
+    <message>
+        <source>CSV/Excel (*.csv *.xlsx);;CSV (*.csv);;Excel (*.xlsx)</source>
+        <translation>CSV/Excel (*.csv *.xlsx);;CSV (*.csv);;Excel (*.xlsx)</translation>
+    </message>
+    <message>
+        <source>Excel files are always UTF-8 — encoding selection is not needed.</source>
+        <translation>Los archivos Excel siempre se tratan como UTF-8; no es necesario seleccionar codificación.</translation>
+    </message>
+    <message>
+        <source>(no sample available)</source>
+        <translation>(sin muestra disponible)</translation>
+    </message>
+    <message>
+        <source>(ASCII only — encoding not critical)</source>
+        <translation>(solo ASCII; la codificación no es crítica)</translation>
+    </message>
+    <message>
+        <source>Please select a join file.</source>
+        <translation>Seleccione un archivo de unión.</translation>
+    </message>
+    <message>
+        <source>Selected join file does not exist.</source>
+        <translation>El archivo de unión seleccionado no existe.</translation>
+    </message>
+    <message>
+        <source>Failed to read join file.</source>
+        <translation>Error al leer el archivo de unión.</translation>
+    </message>
+    <message>
+        <source>Shapefile selected.</source>
+        <translation>Shapefile seleccionado.</translation>
+    </message>
+    <message>
+        <source>Decode attributes with the selected layer encoding and write GPKG.</source>
+        <translation>Decodificar los atributos con la codificación de capa seleccionada y escribir GPKG.</translation>
+    </message>
+    <message>
+        <source>No QGIS layer joins are used in direct Shapefile mode.</source>
+        <translation>En el modo Shapefile directo no se usan uniones de capas QGIS.</translation>
+    </message>
+    <message>
+        <source>Shapefile not selected.</source>
+        <translation>Shapefile no seleccionado.</translation>
+    </message>
+    <message>
+        <source>Select a .shp file.</source>
+        <translation>Seleccione un archivo .shp.</translation>
+    </message>
+    <message>
+        <source>Waiting for input.</source>
+        <translation>Esperando entrada.</translation>
+    </message>
+    <message>
+        <source>QGIS layer not selected.</source>
+        <translation>Capa QGIS no seleccionada.</translation>
+    </message>
+    <message>
+        <source>Select a QGIS layer.</source>
+        <translation>Seleccione una capa QGIS.</translation>
+    </message>
+    <message>
+        <source>Join file selected; layer and join keys are still required.</source>
+        <translation>Archivo de unión seleccionado; aún se requieren la capa y las claves de unión.</translation>
+    </message>
+    <message>
+        <source>Source is {source}; {join}.</source>
+        <translation>La fuente es {source}; {join}.</translation>
+    </message>
+    <message>
+        <source>Convert the layer to GPKG and merge the external join file.</source>
+        <translation>Convertir la capa a GPKG y fusionar el archivo de unión externo.</translation>
+    </message>
+    <message>
+        <source>Join key fields must match before execution.</source>
+        <translation>Los campos clave de unión deben coincidir antes de ejecutar.</translation>
+    </message>
+    <message>
+        <source>Reproduce existing joins into an output GPKG.</source>
+        <translation>Reproducir las uniones existentes en un GPKG de salida.</translation>
+    </message>
+    <message>
+        <source>Join layer(s): {}.</source>
+        <translation>Capa(s) de unión: {}.</translation>
+    </message>
+    <message>
+        <source>Convert to GPKG and reproduce existing joins.</source>
+        <translation>Convertir a GPKG y reproducir las uniones existentes.</translation>
+    </message>
+    <message>
+        <source>No conversion is required unless encoding normalization is needed.</source>
+        <translation>No se requiere conversión salvo que se necesite normalización de codificación.</translation>
+    </message>
+    <message>
+        <source>No joins to reproduce.</source>
+        <translation>No hay uniones para reproducir.</translation>
+    </message>
+    <message>
+        <source>Convert to recommended GPKG.</source>
+        <translation>Convertir al GPKG recomendado.</translation>
+    </message>
+    <message>
+        <source>Select a loaded QGIS layer.
+Existing joins will be detected automatically.</source>
+        <translation>Seleccione una capa QGIS cargada.
+Las uniones existentes se detectarán automáticamente.</translation>
+    </message>
+    <message>
+        <source>Select a layer and specify a join file (CSV or Excel).
+Join key fields must be set.</source>
+        <translation>Seleccione una capa y especifique un archivo de unión (CSV o Excel).
+Los campos clave de unión deben configurarse.</translation>
+    </message>
+    <message>
+        <source>Select a Shapefile to import directly.
+Load into QGIS first if you also need a CSV join.</source>
+        <translation>Seleccione un Shapefile para importar directamente.
+Cárguelo primero en QGIS si también necesita una unión CSV.</translation>
+    </message>
+    <message>
+        <source>(No sample)</source>
+        <translation>(Sin muestra)</translation>
+    </message>
+    <message>
+        <source>(Sample: {})</source>
+        <translation>(Muestra: {})</translation>
+    </message>
+    <message>
+        <source>Sample: {}</source>
+        <translation>Muestra: {}</translation>
+    </message>
+    <message>
+        <source>No sample</source>
+        <translation>Sin muestra</translation>
+    </message>
 </context>
 </TS>

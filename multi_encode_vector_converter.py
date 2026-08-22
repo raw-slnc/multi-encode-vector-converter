@@ -21,14 +21,12 @@
  *                                                                         *
  ***************************************************************************/
 """
-from qgis.PyQt.QtCore import QCoreApplication, Qt
+from qgis.PyQt.QtCore import QCoreApplication
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
-# Initialize Qt resources from file resources.py
-from .resources import *
 
 # Import the code for the DockWidget
-from .multi_encode_vector_converter_dockwidget import MultiEncodeVectorConverterDockWidget
+from .multi_encode_vector_converter_dockwidget import MultiEncodeVectorConverterDockWidget, _debug_log
 import os.path
 
 
@@ -44,6 +42,7 @@ class MultiEncodeVectorConverter:
         :type iface: QgsInterface
         """
         # Save reference to the QGIS interface
+        _debug_log("plugin __init__ start")
         self.iface = iface
 
         # initialize plugin directory
@@ -55,6 +54,7 @@ class MultiEncodeVectorConverter:
         self.menu = self.tr(u'&Multi-Encode Vector Converter')
 
         self.dockwidget = None
+        _debug_log("plugin __init__ done")
 
 
     # noinspection PyMethodMayBeStatic
@@ -149,6 +149,7 @@ class MultiEncodeVectorConverter:
 
     def initGui(self):
         """Create the menu entries and toolbar icons inside the QGIS GUI."""
+        _debug_log("plugin initGui start")
 
         icon_path = os.path.join(self.plugin_dir, 'icon.png')
         self.add_action(
@@ -156,6 +157,7 @@ class MultiEncodeVectorConverter:
             text=self.tr(u'Multi-Encode Vector Converter'),
             callback=self.run,
             parent=self.iface.mainWindow())
+        _debug_log("plugin initGui done")
 
     #--------------------------------------------------------------------------
 
@@ -167,12 +169,13 @@ class MultiEncodeVectorConverter:
 
     def unload(self):
         """Removes the plugin menu item and icon from QGIS GUI."""
+        _debug_log("plugin unload start")
         if self.dockwidget:
             try:
                 self.dockwidget.closingPlugin.disconnect(self.onClosePlugin)
             except TypeError:
                 pass
-            self.iface.removeDockWidget(self.dockwidget)
+            self.dockwidget.close()
             self.dockwidget.deleteLater()
             self.dockwidget = None
 
@@ -181,24 +184,23 @@ class MultiEncodeVectorConverter:
                 self.menu,
                 action)
             self.iface.removeVectorToolBarIcon(action)
+        _debug_log("plugin unload done")
 
     #--------------------------------------------------------------------------
 
     def run(self):
         """Run method that loads and starts the plugin"""
+        _debug_log("plugin run start dockwidget_exists={}".format(self.dockwidget is not None))
 
         # Create the dock widget if it doesn't exist yet
         if self.dockwidget is None:
-            self.dockwidget = MultiEncodeVectorConverterDockWidget()
+            self.dockwidget = MultiEncodeVectorConverterDockWidget(self.iface.mainWindow())
             self.dockwidget.closingPlugin.connect(self.onClosePlugin)
-            self.dockwidget.setAllowedAreas(Qt.RightDockWidgetArea)
-            self.iface.addDockWidget(Qt.RightDockWidgetArea, self.dockwidget)
 
-        # Always ensure the widget is floating, visible, and on top when 'run' is called.
-        # This forces it to appear as a detached window by default, solving the issue
-        # where it would appear docked on the first run.
-        self.dockwidget.setFloating(True)
+        self.dockwidget._refresh_layer_list()
         hint = self.dockwidget.sizeHint()
-        self.dockwidget.resize(hint.width(), hint.height() * 2 // 3)
+        self.dockwidget.resize(720, hint.height() * 2 // 3)
         self.dockwidget.show()
         self.dockwidget.raise_()
+        self.dockwidget.activateWindow()
+        _debug_log("plugin run done")
