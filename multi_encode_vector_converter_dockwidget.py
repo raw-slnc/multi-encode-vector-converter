@@ -24,7 +24,6 @@
 import os
 import sys
 import csv
-import time
 import zipfile
 
 _vendor = os.path.join(os.path.dirname(__file__), "vendor")
@@ -64,23 +63,8 @@ from qgis.core import (
 )
 
 
-_DEBUG_LOG_PATH = os.path.join(os.path.dirname(__file__), "debug.log")
-
-
 def _debug_log(message):
-    """Write a crash-surviving breadcrumb for field diagnostics."""
-    try:
-        with open(_DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
-            f.write(
-                "{:.3f} pid={} {}\n".format(
-                    time.time(),
-                    os.getpid(),
-                    message,
-                )
-            )
-            f.flush()
-    except Exception:  # nosec B110 - best-effort breadcrumb; a logging failure must never abort the caller
-        pass
+    """Write a diagnostic breadcrumb to the QGIS message log."""
     try:
         from qgis.core import Qgis, QgsMessageLog
         QgsMessageLog.logMessage(message, "MultiEncodeVectorConverter", Qgis.MessageLevel.Info)
