@@ -8,10 +8,11 @@ description[es]=Resuelve problemas de codificación de caracteres al convertir d
 about=Multi-Encode Vector Converter is a QGIS plugin designed to solve character encoding issues (e.g., garbled special characters or accents) when converting vector data, such as Shapefiles, to GeoPackage (GPKG), ensuring safe data integration. It allows you to preview attribute data before conversion, specify the correct encoding from a wide range of standard Python encodings (e.g., UTF-8, Windows-1252, ISO-8859-1), and output a standard UTF-8 GeoPackage. It also supports joining external CSV files with different encodings during the conversion process. Support: https://paypal.me/rawslnc
 about[ja]=Multi-Encode Vector Converter は、シェープファイル（Shapefile）などのベクタデータを GeoPackage (GPKG) に変換する際、文字化け（エンコーディング）の問題を解決し、安全に統合するための QGIS プラグインです。変換前に属性データのプレビューを行い、Pythonがサポートする多くの標準エンコーディング（Shift_JIS, CP932, UTF-8, EUC-JPなど）から正しいものを指定して、標準的な UTF-8 の GeoPackage に変換・出力します。また、異なるエンコーディングを持つ CSV ファイルを結合して変換することも可能です。開発を応援していただけると嬉しいです。 https://paypal.me/rawslnc
 about[es]=Multi-Encode Vector Converter es un complemento de QGIS diseñado para resolver problemas de codificación de caracteres (mojibake) al convertir datos vectoriales, como Shapefiles, a GeoPackage (GPKG), garantizando una integración segura de los datos. Permite previsualizar los datos de atributos antes de la conversión, especificar la codificación correcta de entre una amplia gama de codificaciones estándar de Python (p. ej., UTF-8, ISO-8859-1, Windows-1252) y generar un GeoPackage estándar en UTF-8. También admite la unión de archivos CSV externos con diferentes codificaciones durante el proceso de conversión. Soporte: https://paypal.me/rawslnc
-version=1.0.0
+version=1.0.1
 author=Hideharu Masai
 email=hideharumasai@void.mints.ne.jp
 changelog=
+    1.0.1: Restructure the panel into "Convert" and "Description" tabs to keep vertical height manageable when the QGIS UI font size is enlarged; remove the outer "Conversion Steps" group box so A/B/C sit directly in the Convert tab; replace the old "Important Note" text with a Description tab explaining when to use the plugin and concrete caveats (e.g. GPKG conversion cannot restore data already lost to the old Shapefile 10-character field name limit); move the language switcher to a fixed bottom-left row outside the tabs; fix language switching not updating the already-rendered encoding preview and execution result labels; mark the plugin as no longer experimental
     1.0.0: QGIS 4.x (PyQt6/Qt6) support. Replaced the QDockWidget-based panel with a plain modeless QDialog window (same approach as webodm_importer/shinrinbo_code_converter) to keep the plugin out of Qt6's dock/float transition handling, which was forcing the panel to detach into floating mode on every open; tightened the Join key row so the two field-selector combos sit flush against the "=" separator instead of stretching apart. Security scan cleanup: vendor a minimal defusedxml (matching forestry_operations_lite) and use it for all .xlsx XML parsing instead of raw xml.etree.ElementTree; annotate the remaining intentional except/pass fallbacks with justified nosec B110
     0.2.2: Fix bandit security scan warning: suppress intentional bare-except fallback in layer source path parsing with nosec B110
     0.2.1: Fix join field subset check to treat empty list as "all fields" (prevents silent data loss when joinFieldNamesSubset returns []); fix _flatten_to_memory to apply GPKG reserved name protection for non-SHP layers
@@ -23,5 +24,5 @@ repository=https://github.com/raw-slnc/multi_encode_vector_converter
 tracker=https://github.com/raw-slnc/multi_encode_vector_converter/issues
 homepage=https://github.com/raw-slnc/multi_encode_vector_converter
 icon=icon.png
-experimental=True
+experimental=False
 deprecated=False

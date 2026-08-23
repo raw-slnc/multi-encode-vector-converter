@@ -50,6 +50,7 @@ from qgis.PyQt.QtWidgets import (
     QSizePolicy,
     QMessageBox,
     QProgressBar,
+    QTabWidget,
 )
 from qgis.core import (
     QgsProject,
@@ -169,10 +170,13 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDialog):
         self.setWindowTitle(self.tr("Multi-Encode Vector Converter"))
 
         main_widget = QWidget()
+        outer_v = QVBoxLayout()
+
+        self.tabs = QTabWidget()
+
+        tab_convert = QWidget()
         layout = QVBoxLayout()
 
-        # ── Conversion Steps (wraps A/B/C so the sequence reads as one block) ──
-        self.group_outer = QGroupBox(self.tr("Conversion Steps"))
         layout_outer = QVBoxLayout()
 
         # ── A: Input Source ──────────────────────────────────────────
@@ -399,30 +403,54 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDialog):
         group_c.setLayout(layout_c)
         layout_outer.addWidget(group_c)
 
-        self.lbl_result_summary = QLabel(self.tr("Result: No execution yet."))
+        self.lbl_result_summary = QLabel()
         self.lbl_result_summary.setWordWrap(True)
         self.lbl_result_summary.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._result_kind = "no_execution"
+        self._result_msg = None
+        self._refresh_result_label()
         layout_outer.addWidget(self.lbl_result_summary)
 
-        self.group_outer.setLayout(layout_outer)
-        layout.addWidget(self.group_outer)
+        layout.addLayout(layout_outer)
+        tab_convert.setLayout(layout)
+        self.tabs.addTab(tab_convert, self.tr("Convert"))
 
-        # ── Important Note ────────────────────────────────────────────
-        self.group_note = QGroupBox(self.tr("Important Note"))
-        group_note = self.group_note
-        layout_note = QVBoxLayout()
-        self.lbl_note = QLabel(self.tr(
-            "This is a temporary remediation for GPKG workflows.\n"
-            "GPKG handling in this plugin is a temporary relief measure.\n"
-            "It improves normalization and integration issues, but cannot fully restore\n"
-            "information already lost by legacy format limits or irreversible conversions."
+        # ── Description tab (intended use cases + cautions) ─────────────
+        tab_desc = QWidget()
+        layout_desc = QVBoxLayout()
+
+        self.lbl_desc_usecase_title = QLabel(self.tr("When to use this plugin"))
+        self.lbl_desc_usecase_title.setStyleSheet("font-weight:bold;")
+        layout_desc.addWidget(self.lbl_desc_usecase_title)
+        self.lbl_desc_usecase = QLabel(self.tr(
+            "Use this when attribute text becomes garbled (mojibake) while converting "
+            "Shapefiles or other legacy vector data to GeoPackage, or when you need to "
+            "join an external CSV/Excel file that uses a different encoding than the "
+            "source layer."
         ))
-        self.lbl_note.setWordWrap(True)
-        layout_note.addWidget(self.lbl_note)
-        group_note.setLayout(layout_note)
-        layout.addWidget(group_note)
+        self.lbl_desc_usecase.setWordWrap(True)
+        layout_desc.addWidget(self.lbl_desc_usecase)
 
-        # ── Language Switcher (bottom-left) ───────────────────────────
+        self.lbl_desc_caution_title = QLabel(self.tr("Things to keep in mind"))
+        self.lbl_desc_caution_title.setStyleSheet("font-weight:bold; margin-top:8px;")
+        layout_desc.addWidget(self.lbl_desc_caution_title)
+        self.lbl_desc_caution = QLabel(self.tr(
+            "GPKG conversion here is a workaround for encoding problems, not a full "
+            "data-recovery tool. Information already lost before conversion — such as "
+            "attribute values that were garbled in the original file, or field names "
+            "truncated by the old Shapefile 10-character limit — cannot be restored. "
+            "Preview the encoding before running Execute to confirm it looks correct."
+        ))
+        self.lbl_desc_caution.setWordWrap(True)
+        layout_desc.addWidget(self.lbl_desc_caution)
+        layout_desc.addStretch()
+
+        tab_desc.setLayout(layout_desc)
+        self.tabs.addTab(tab_desc, self.tr("Description"))
+
+        outer_v.addWidget(self.tabs)
+
+        # ── Language Switcher (bottom-left, outside tabs) ───────────────
         lang_row = QHBoxLayout()
         self.lbl_language = QLabel()
         lang_row.addWidget(self.lbl_language)
@@ -431,9 +459,9 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDialog):
             self.cb_language.addItem(display)
         lang_row.addWidget(self.cb_language)
         lang_row.addStretch()
-        layout.addLayout(lang_row)
+        outer_v.addLayout(lang_row)
 
-        main_widget.setLayout(layout)
+        main_widget.setLayout(outer_v)
         outer_layout = QVBoxLayout(self)
         outer_layout.setContentsMargins(0, 0, 0, 0)
         outer_layout.addWidget(main_widget)
@@ -507,7 +535,6 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDialog):
 
     def _retranslate_ui(self):
         self.setWindowTitle(self.tr("Multi-Encode Vector Converter"))
-        self.group_outer.setTitle(self.tr("Conversion Steps"))
         self.group_a.setTitle(self.tr("A: Input Source"))
         self.rb_layer.setText(self.tr("QGIS Layer"))
         self.rb_layer_csv.setText(self.tr("QGIS Layer + Join File"))
@@ -528,16 +555,49 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDialog):
         self.lbl_gpkg.setText(self.tr("GeoPackage (GPKG, Recommended)"))
         self.lbl_output_hint.setText(self.tr("Output path will be selected when Execute is clicked."))
         self.btn_execute.setText(self.tr("Execute"))
-        self.group_note.setTitle(self.tr("Important Note"))
-        self.lbl_note.setText(self.tr(
-            "This is a temporary remediation for GPKG workflows.\n"
-            "GPKG handling in this plugin is a temporary relief measure.\n"
-            "It improves normalization and integration issues, but cannot fully restore\n"
-            "information already lost by legacy format limits or irreversible conversions."
+        self.tabs.setTabText(0, self.tr("Convert"))
+        self.tabs.setTabText(1, self.tr("Description"))
+        self.lbl_desc_usecase_title.setText(self.tr("When to use this plugin"))
+        self.lbl_desc_usecase.setText(self.tr(
+            "Use this when attribute text becomes garbled (mojibake) while converting "
+            "Shapefiles or other legacy vector data to GeoPackage, or when you need to "
+            "join an external CSV/Excel file that uses a different encoding than the "
+            "source layer."
+        ))
+        self.lbl_desc_caution_title.setText(self.tr("Things to keep in mind"))
+        self.lbl_desc_caution.setText(self.tr(
+            "GPKG conversion here is a workaround for encoding problems, not a full "
+            "data-recovery tool. Information already lost before conversion — such as "
+            "attribute values that were garbled in the original file, or field names "
+            "truncated by the old Shapefile 10-character limit — cannot be restored. "
+            "Preview the encoding before running Execute to confirm it looks correct."
         ))
         self.lbl_language.setText(self.tr("Language:"))
         self._update_input_description()
         self._update_status_lines()
+        self._refresh_enc_preview_label()
+        self._refresh_csv_enc_preview_label()
+        self._refresh_result_label()
+
+    def _set_result_text(self, kind, msg=None):
+        """Update lbl_result_summary and remember enough to redo it in _retranslate_ui."""
+        self._result_kind = kind
+        self._result_msg = msg
+        self._refresh_result_label()
+
+    def _refresh_result_label(self):
+        kind = self._result_kind
+        if kind == "canceled":
+            text = self.tr("Result: Execution canceled (no output selected).")
+        elif kind == "skip_gpkg":
+            text = self.tr("Result: Layer is already GPKG with no joins. Skipping.")
+        elif kind == "converting":
+            text = self.tr("Result: Converting...")
+        elif kind == "done":
+            text = self.tr("Result: {}").format(self._result_msg)
+        else:
+            text = self.tr("Result: No execution yet.")
+        self.lbl_result_summary.setText(text)
 
     # ── Layer list management ──────────────────────────────────────────
 
@@ -2041,18 +2101,14 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDialog):
 
         output_path = self._select_output_file()
         if not output_path:
-            self.lbl_result_summary.setText(
-                self.tr("Result: Execution canceled (no output selected).")
-            )
+            self._set_result_text("canceled")
             _debug_log("_on_execute_clicked canceled no output")
             return
 
         if self.rb_layer.isChecked():
             layer = self._get_selected_layer()
             if layer and self._is_layer_source_gpkg(layer) and not self._detect_layer_joins(layer):
-                self.lbl_result_summary.setText(
-                    self.tr("Result: Layer is already GPKG with no joins. Skipping.")
-                )
+                self._set_result_text("skip_gpkg")
                 QMessageBox.information(
                     self,
                     self.tr("Skip"),
@@ -2070,7 +2126,7 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDialog):
         # Switch UI to progress mode
         self.btn_execute.setVisible(False)
         self.progress_bar.setVisible(True)
-        self.lbl_result_summary.setText(self.tr("Result: Converting..."))
+        self._set_result_text("converting")
 
         background_job = self._build_background_conversion_job(output_path)
         if background_job is not None:
@@ -2124,7 +2180,7 @@ class MultiEncodeVectorConverterDockWidget(QtWidgets.QDialog):
         self.progress_bar.setRange(0, 0)
         self.progress_bar.setValue(0)
         self.btn_execute.setVisible(True)
-        self.lbl_result_summary.setText(self.tr("Result: {}").format(msg))
+        self._set_result_text("done", msg=msg)
         output_path = self._pending_output_path
         if ok:
             # Use the actual internal layer name from the GPKG (not the output filename)
